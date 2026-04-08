@@ -24,6 +24,14 @@ import {
   defaultDataFor,
 } from "./types";
 import { saveFlow, openFlow } from "./storage";
+import { invoke } from "@tauri-apps/api/core";
+
+interface SkillEntry {
+  kind: "skill" | "command";
+  name: string;
+  description: string;
+  path: string;
+}
 
 function App() {
   return (
@@ -39,7 +47,14 @@ function FlowbenchApp() {
   const [selected, setSelected] = useState<Node<FlowNodeData> | null>(null);
   const [tab, setTab] = useState<"live" | "free" | "logs">("live");
   const [flowName, setFlowName] = useState("untitled");
+  const [skills, setSkills] = useState<SkillEntry[]>([]);
   const idRef = useRef(0);
+
+  useEffect(() => {
+    invoke<SkillEntry[]>("list_skills")
+      .then(setSkills)
+      .catch((err) => console.error("list_skills failed", err));
+  }, []);
 
   const nextId = useCallback(() => `n${++idRef.current}`, []);
 
@@ -144,7 +159,34 @@ function FlowbenchApp() {
         onOpen={handleOpen}
       />
       <div className="main">
-        <Library />
+        <Library
+          skills={skills}
+          onAdd={(kind) => {
+            const id = nextId();
+            const offset = nodes.length * 24;
+            const newNode: Node<FlowNodeData> = {
+              id,
+              type: kind,
+              position: { x: 100 + offset, y: 100 + offset },
+              data: defaultDataFor(kind),
+            };
+            setNodes((nds) => [...nds, newNode]);
+          }}
+          onAddSkill={(skillName) => {
+            const id = nextId();
+            const offset = nodes.length * 24;
+            const data = defaultDataFor("skill");
+            data.skill = skillName;
+            data.title = skillName;
+            const newNode: Node<FlowNodeData> = {
+              id,
+              type: "skill",
+              position: { x: 100 + offset, y: 100 + offset },
+              data,
+            };
+            setNodes((nds) => [...nds, newNode]);
+          }}
+        />
         <Canvas
           nodes={nodes}
           edges={edges}
@@ -152,20 +194,22 @@ function FlowbenchApp() {
           onEdgesChange={onEdgesChange}
           onConnect={onConnect}
           onSelect={setSelected}
-          onDrop={(kind, position) => {
+          onDrop={(kind, position, skill) => {
             const id = nextId();
+            const data = defaultDataFor(kind);
+            if (kind === "skill" && skill) data.skill = skill;
             const newNode: Node<FlowNodeData> = {
               id,
               type: kind,
               position,
-              data: defaultDataFor(kind),
+              data,
             };
             setNodes((nds) => [...nds, newNode]);
           }}
         />
         <TerminalPanel tab={tab} setTab={setTab} />
       </div>
-      <Inspector selected={selected} onChange={updateSelected} />
+      <Inspector selected={selected} onChange={updateSelected} skills={skills} />
     </div>
   );
 }
@@ -199,9 +243,28 @@ function TopBar({
 }
 
 /* ─────────────── Library ─────────────── */
-function Library() {
-  const onDragStart = (e: React.DragEvent, kind: NodeKind) => {
+function prettifySkillName(raw: string): string {
+  return raw
+    .replace(/_SKILL$/i, "")
+    .replace(/[_-]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function Library({
+  skills,
+  onAdd,
+  onAddSkill,
+}: {
+  skills: SkillEntry[];
+  onAdd: (kind: NodeKind) => void;
+  onAddSkill: (skillName: string) => void;
+}) {
+  const [skillsOpen, setSkillsOpen] = useState(false);
+
+  const onDragStart = (e: React.DragEvent, kind: NodeKind, skill?: string) => {
     e.dataTransfer.setData("application/flowbench-node", kind);
+    if (skill) e.dataTransfer.setData("application/flowbench-skill", skill);
     e.dataTransfer.effectAllowed = "move";
   };
 
@@ -217,13 +280,63 @@ function Library() {
           draggable
           onDragStart={(e) => onDragStart(e, k)}
         >
-          <div className="lib-item-name">{NODE_LABELS[k]}</div>
-          <div className="lib-item-hint">{NODE_HINTS[k]}</div>
+          <div className="lib-item-body">
+            <div className="lib-item-name">{NODE_LABELS[k]}</div>
+            <div className="lib-item-hint">{NODE_HINTS[k]}</div>
+          </div>
+          <button
+            className="lib-add"
+            onClick={(e) => {
+              e.stopPropagation();
+              onAdd(k);
+            }}
+            title={`Add ${NODE_LABELS[k]} node`}
+          >
+            +
+          </button>
         </div>
       ))}
 
-      <div className="section-label">Skills</div>
-      <div className="empty">Auto-discovered in Phase 3</div>
+      <button
+        className="accordion-header"
+        onClick={() => setSkillsOpen((v) => !v)}
+      >
+        <span className="accordion-chevron">{skillsOpen ? "▾" : "▸"}</span>
+        <span>Skills</span>
+        <span className="count">{skills.length}</span>
+      </button>
+
+      {skillsOpen && (
+        <div className="accordion-body">
+          {skills.length === 0 && (
+            <div className="empty">No skills found in ~/.claude/</div>
+          )}
+          {skills.map((s) => (
+            <div
+              key={`${s.kind}-${s.name}`}
+              className="lib-item lib-item-compact"
+              draggable
+              onDragStart={(e) => onDragStart(e, "skill", s.name)}
+              title={s.description}
+            >
+              <div className="lib-item-body">
+                <div className="lib-item-name">{prettifySkillName(s.name)}</div>
+                <div className="lib-item-hint">{s.kind}</div>
+              </div>
+              <button
+                className="lib-add"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onAddSkill(s.name);
+                }}
+                title={`Add ${s.name}`}
+              >
+                +
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
 
       <div className="section-label">Super-nodes</div>
       <div className="empty">Coming in v2</div>
@@ -247,7 +360,11 @@ function Canvas({
   onEdgesChange: any;
   onConnect: (c: Connection) => void;
   onSelect: (n: Node<FlowNodeData> | null) => void;
-  onDrop: (kind: NodeKind, position: { x: number; y: number }) => void;
+  onDrop: (
+    kind: NodeKind,
+    position: { x: number; y: number },
+    skill?: string,
+  ) => void;
 }) {
   const wrapperRef = useRef<HTMLDivElement>(null);
   const { screenToFlowPosition } = useReactFlow();
@@ -256,8 +373,9 @@ function Canvas({
     e.preventDefault();
     const kind = e.dataTransfer.getData("application/flowbench-node") as NodeKind;
     if (!kind) return;
+    const skill = e.dataTransfer.getData("application/flowbench-skill") || undefined;
     const position = screenToFlowPosition({ x: e.clientX, y: e.clientY });
-    onDrop(kind, position);
+    onDrop(kind, position, skill);
   };
 
   return (
@@ -280,7 +398,7 @@ function Canvas({
           onNodeClick={(_, node) => onSelect(node)}
           onPaneClick={() => onSelect(null)}
           nodeTypes={nodeTypes}
-          fitView
+          defaultViewport={{ x: 0, y: 0, zoom: 1 }}
           proOptions={{ hideAttribution: true }}
         >
           <Background
@@ -340,9 +458,11 @@ function TerminalPanel({
 function Inspector({
   selected,
   onChange,
+  skills,
 }: {
   selected: Node<FlowNodeData> | null;
   onChange: (patch: Partial<FlowNodeData>) => void;
+  skills: SkillEntry[];
 }) {
   if (!selected) {
     return (
@@ -381,13 +501,19 @@ function Inspector({
             </Field>
           )}
           {d.kind === "skill" && (
-            <Field label="Skill name">
-              <input
+            <Field label="Skill">
+              <select
                 className="input"
                 value={d.skill || ""}
                 onChange={(e) => onChange({ skill: e.target.value })}
-                placeholder="e.g. mcc-ix-mapping"
-              />
+              >
+                <option value="">— Select a skill —</option>
+                {skills.map((s) => (
+                  <option key={`${s.kind}-${s.name}`} value={s.name}>
+                    {s.name} ({s.kind})
+                  </option>
+                ))}
+              </select>
             </Field>
           )}
           {d.kind === "subagent" && (
