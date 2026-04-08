@@ -159,6 +159,54 @@ button {
 
 .topbar-right {
   justify-self: end;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.status-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  border: 1px solid var(--ch-border);
+  background: var(--ch-bg);
+  font-family: var(--ch-font-mono);
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--ch-text-secondary);
+  cursor: pointer;
+  transition: background var(--ch-duration-fast) var(--ch-easing),
+              border-color var(--ch-duration-fast) var(--ch-easing);
+}
+
+.status-pill:hover {
+  background: var(--ch-accent-subtle);
+  border-color: var(--ch-border-strong);
+}
+
+.status-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--ch-text-tertiary);
+}
+
+.status-connected .status-dot {
+  background: var(--ch-success);
+  box-shadow: 0 0 0 3px rgba(22, 163, 74, 0.18);
+}
+
+.status-not_signed_in .status-dot,
+.status-not_installed .status-dot {
+  background: var(--ch-warning);
+  box-shadow: 0 0 0 3px rgba(217, 119, 6, 0.18);
+}
+
+.status-unknown .status-dot {
+  background: var(--ch-text-tertiary);
 }
 
 .logo {

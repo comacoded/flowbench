@@ -51,6 +51,11 @@ interface ContextPlan {
   raw: string;
 }
 
+interface ClaudeStatus {
+  kind: "connected" | "not_installed" | "not_signed_in" | "unknown";
+  message: string;
+}
+
 interface NodeRunResult {
   nodeId: string;
   title: string;
@@ -79,6 +84,22 @@ function FlowbenchApp() {
   const [nodeResults, setNodeResults] = useState<Record<string, NodeRunResult>>({});
   const [flowName, setFlowName] = useState("untitled");
   const [skills, setSkills] = useState<SkillEntry[]>([]);
+  const [claudeStatus, setClaudeStatus] = useState<ClaudeStatus | null>(null);
+  const [statusOpen, setStatusOpen] = useState(false);
+
+  const refreshClaudeStatus = useCallback(async () => {
+    setClaudeStatus({ kind: "unknown", message: "Checking…" });
+    try {
+      const s = await invoke<ClaudeStatus>("claude_status");
+      setClaudeStatus(s);
+    } catch (err) {
+      setClaudeStatus({ kind: "unknown", message: String(err) });
+    }
+  }, []);
+
+  useEffect(() => {
+    refreshClaudeStatus();
+  }, [refreshClaudeStatus]);
   const [menu, setMenu] = useState<{ nodeId: string; x: number; y: number } | null>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [running, setRunning] = useState(false);
@@ -537,6 +558,8 @@ function FlowbenchApp() {
         onPause={handlePause}
         running={running}
         paused={paused}
+        claudeStatus={claudeStatus}
+        onOpenStatus={() => setStatusOpen(true)}
       />
       <PanelGroup direction="horizontal" className="main">
         <Panel
@@ -654,6 +677,14 @@ function FlowbenchApp() {
         />
       )}
 
+      {statusOpen && (
+        <ClaudeStatusModal
+          status={claudeStatus}
+          onRefresh={refreshClaudeStatus}
+          onClose={() => setStatusOpen(false)}
+        />
+      )}
+
       {toast && (
         <div className={`toast toast-${toast.kind}`}>
           {toast.kind === "success" && <span className="toast-icon">✓</span>}
@@ -686,6 +717,8 @@ function TopBar({
   onPause,
   running,
   paused,
+  claudeStatus,
+  onOpenStatus,
 }: {
   flowName: string;
   onSave: () => void;
@@ -695,6 +728,8 @@ function TopBar({
   onPause: () => void;
   running: boolean;
   paused: boolean;
+  claudeStatus: ClaudeStatus | null;
+  onOpenStatus: () => void;
 }) {
   const runLabel = running ? (paused ? "Paused" : "Running") : "Run";
   return (
@@ -713,6 +748,22 @@ function TopBar({
         <span className="flow-name">{flowName}.flow.json</span>
       </div>
       <div className="topbar-right">
+        <button
+          className={`status-pill status-${claudeStatus?.kind || "unknown"}`}
+          onClick={onOpenStatus}
+          title={claudeStatus?.message || "Checking…"}
+        >
+          <span className="status-dot" />
+          <span>
+            {claudeStatus?.kind === "connected"
+              ? "Connected"
+              : claudeStatus?.kind === "not_signed_in"
+                ? "Not signed in"
+                : claudeStatus?.kind === "not_installed"
+                  ? "Not installed"
+                  : "Checking…"}
+          </span>
+        </button>
         <button
           className="btn btn-primary"
           onClick={onRun}
@@ -1141,6 +1192,169 @@ function buildPromptForNode(d: FlowNodeData): string {
   if (d.kind === "subagent") return d.subagentPrompt || "";
   if (d.kind === "assessment") return d.question || "";
   return "";
+}
+
+function ClaudeStatusModal({
+  status,
+  onRefresh,
+  onClose,
+}: {
+  status: ClaudeStatus | null;
+  onRefresh: () => void;
+  onClose: () => void;
+}) {
+  const [busy, setBusy] = useState<"login" | "logout" | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  const handleLogin = async () => {
+    setBusy("login");
+    setError(null);
+    try {
+      await invoke("claude_login");
+      await onRefresh();
+    } catch (err) {
+      setError(String(err));
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const handleLogout = async () => {
+    setBusy("logout");
+    setError(null);
+    try {
+      await invoke("claude_logout");
+      await onRefresh();
+    } catch (err) {
+      setError(String(err));
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose]);
+
+  return (
+    <div
+      className="modal-backdrop"
+      onClick={(e) => {
+        if (e.target === e.currentTarget) onClose();
+      }}
+    >
+      <div className="modal" onClick={(e) => e.stopPropagation()}>
+        <div className="modal-head">
+          <div>
+            <div className="section-label" style={{ padding: 0, marginBottom: 4 }}>
+              Claude connection
+            </div>
+            <div className="modal-title">
+              {status?.kind === "connected"
+                ? "Connected"
+                : status?.kind === "not_signed_in"
+                  ? "Not signed in"
+                  : status?.kind === "not_installed"
+                    ? "Claude not installed"
+                    : "Status unknown"}
+            </div>
+          </div>
+          <div style={{ display: "flex", gap: 8 }}>
+            <button className="btn btn-sm" onClick={onRefresh}>
+              Refresh
+            </button>
+            <button className="btn btn-icon" onClick={onClose} title="Close">
+              <IconX />
+            </button>
+          </div>
+        </div>
+        <div className="modal-body">
+          <p style={{ margin: "0 0 16px", fontSize: 13, color: "var(--ch-text-secondary)" }}>
+            {status?.message || "Checking the system claude install…"}
+          </p>
+
+          {error && (
+            <div
+              style={{
+                padding: 12,
+                background: "#FEF2F2",
+                border: "1px solid #FECACA",
+                borderRadius: 8,
+                color: "var(--ch-error)",
+                fontSize: 12,
+                marginBottom: 16,
+                fontFamily: "var(--ch-font-mono)",
+                whiteSpace: "pre-wrap",
+              }}
+            >
+              {error}
+            </div>
+          )}
+
+          {(status?.kind === "not_signed_in" || status?.kind === "unknown") && (
+            <>
+              <button
+                className="btn btn-primary"
+                style={{ width: "100%", padding: "10px 16px", fontSize: 13 }}
+                onClick={handleLogin}
+                disabled={busy !== null}
+              >
+                {busy === "login"
+                  ? "Waiting for browser sign-in…"
+                  : "Sign in with Claude"}
+              </button>
+              <p style={{ margin: "12px 0 0", fontSize: 12, color: "var(--ch-text-tertiary)", lineHeight: 1.5 }}>
+                A browser window will open to sign you in to your Claude account. Flowbench uses your existing Claude Max subscription — no separate billing.
+              </p>
+            </>
+          )}
+
+          {status?.kind === "not_installed" && (
+            <>
+              <div className="section-label" style={{ padding: "0 0 8px" }}>Install Claude Code</div>
+              <p style={{ margin: "0 0 12px", fontSize: 13, color: "var(--ch-text)" }}>
+                Flowbench needs the Claude Code CLI installed on your machine. It's a free download from Anthropic.
+              </p>
+              <a
+                href="https://claude.com/download"
+                target="_blank"
+                rel="noreferrer"
+                className="btn btn-primary"
+                style={{
+                  display: "inline-block",
+                  padding: "8px 14px",
+                  textDecoration: "none",
+                  fontSize: 12,
+                }}
+              >
+                Download Claude Code
+              </a>
+            </>
+          )}
+
+          {status?.kind === "connected" && (
+            <button
+              className="btn"
+              style={{
+                width: "100%",
+                padding: "10px 16px",
+                fontSize: 13,
+                border: "1px solid var(--ch-border)",
+                borderRadius: 8,
+                color: "var(--ch-error)",
+              }}
+              onClick={handleLogout}
+              disabled={busy !== null}
+            >
+              {busy === "logout" ? "Signing out…" : "Sign out"}
+            </button>
+          )}
+        </div>
+      </div>
+    </div>
+  );
 }
 
 function PreflightModal({

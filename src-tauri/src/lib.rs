@@ -1,3 +1,4 @@
+mod auth;
 mod orchestrator;
 mod runner;
 
@@ -149,7 +150,10 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             list_skills,
             runner::run_node,
-            orchestrator::plan_graph
+            orchestrator::plan_graph,
+            auth::claude_status,
+            auth::claude_login,
+            auth::claude_logout
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
