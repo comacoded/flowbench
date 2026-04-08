@@ -16,6 +16,8 @@ import {
 } from "reactflow";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { nodeTypes } from "./nodes";
+import { edgeTypes } from "./edges";
+import { EdgeKind, FlowEdgeData } from "./types";
 import {
   FlowNodeData,
   NodeKind,
@@ -186,8 +188,30 @@ function FlowbenchApp() {
         console.error("graph has a cycle");
         return;
       }
+      // "Runnable" includes assessment nodes — they have a question prompt.
       const runnable = order.filter((n) => buildPromptForNode(n.data).length > 0);
       if (runnable.length === 0) return;
+
+      // Build adjacency: nodeId -> list of (edge, targetNode)
+      const outgoing = new Map<string, Edge[]>();
+      for (const n of nodes) outgoing.set(n.id, []);
+      for (const e of edges) {
+        if (outgoing.has(e.source)) outgoing.get(e.source)!.push(e);
+      }
+
+      // Roots: nodes with no incoming edges (within runnable)
+      const incomingCount = new Map<string, number>();
+      for (const n of runnable) incomingCount.set(n.id, 0);
+      for (const e of edges) {
+        if (incomingCount.has(e.target) && runnable.some((n) => n.id === e.source)) {
+          incomingCount.set(e.target, (incomingCount.get(e.target) || 0) + 1);
+        }
+      }
+      const roots = runnable.filter((n) => incomingCount.get(n.id) === 0);
+      if (roots.length === 0) {
+        console.error("no root nodes (cycle or isolated)");
+        return;
+      }
 
       setRunning(true);
       setPaused(false);
@@ -230,11 +254,46 @@ function FlowbenchApp() {
       }
 
       const outputs: Record<string, string> = {};
+      const branchTaken: Record<string, string> = {}; // assessment node → chosen branch
       let succeeded = 0;
       let failed = 0;
+      let executedCount = 0;
+      const SOFT_CAP = 30;
       setNodeResults({});
+
+      // Frontier-based traversal honoring edge kinds.
+      const visited = new Set<string>();
+      const queue: Node<FlowNodeData>[] = [...roots];
+
+      const advance = (currentId: string, currentStatus: "success" | "failed") => {
+        const out = outgoing.get(currentId) || [];
+        for (const e of out) {
+          const ed = (e.data as FlowEdgeData) || {};
+          const kind = ed.kind || "sequential";
+          // Decide whether this edge fires.
+          let fires = false;
+          if (kind === "sequential") fires = currentStatus === "success";
+          else if (kind === "success") fires = currentStatus === "success";
+          else if (kind === "failure") fires = currentStatus === "failed";
+          else if (kind === "conditional") {
+            // Only fire if the upstream is an assessment AND its chosen branch matches this edge's branch label.
+            const chosen = branchTaken[currentId];
+            fires = !!chosen && (ed.branch || "").trim() === chosen.trim();
+          }
+          if (!fires) continue;
+          const target = runnable.find((n) => n.id === e.target);
+          if (target && !visited.has(target.id)) {
+            queue.push(target);
+          }
+        }
+      };
+
       try {
-        for (const node of runnable) {
+        while (queue.length > 0) {
+          const node = queue.shift()!;
+          if (visited.has(node.id)) continue;
+          visited.add(node.id);
+
           // wait for resume if paused
           await waitForResume(
             () => pausedRef.current,
@@ -291,6 +350,30 @@ function FlowbenchApp() {
               },
             }));
             succeeded++;
+            executedCount++;
+
+            // If this was an assessment node, parse the chosen branch from its output.
+            if (node.data.kind === "assessment") {
+              const branches = node.data.branches || [];
+              const lower = (result.output || "").toLowerCase();
+              const found = branches.find((b) => lower.includes(b.toLowerCase()));
+              if (found) branchTaken[node.id] = found;
+            }
+
+            advance(node.id, "success");
+
+            // Soft cap check.
+            if (executedCount >= SOFT_CAP) {
+              showToast("info", `Soft cap of ${SOFT_CAP} nodes reached. Pausing.`);
+              pausedRef.current = true;
+              setPaused(true);
+              await waitForResume(
+                () => pausedRef.current,
+                () => cancelledRef.current,
+              );
+              if (cancelledRef.current) break;
+              executedCount = 0;
+            }
           } catch (err) {
             console.error(`node ${node.id} failed`, err);
             setNodeStatus(node.id, "failed");
@@ -304,15 +387,17 @@ function FlowbenchApp() {
               },
             }));
             failed++;
-            // pause for human (Phase 7 will surface this)
+            executedCount++;
+            // Pause for human intervention before deciding to follow on-failure edges.
             pausedRef.current = true;
             setPaused(true);
-            // hold here
             await waitForResume(
               () => pausedRef.current,
               () => cancelledRef.current,
             );
             if (cancelledRef.current) break;
+            // After resume, follow only on-failure edges.
+            advance(node.id, "failed");
           }
 
           // step mode: pause after each successful node
@@ -499,6 +584,16 @@ function FlowbenchApp() {
           onConnect={onConnect}
           onSelect={() => {}}
           onNodeDoubleClick={(n) => setEditingId(n.id)}
+          onEdgeClick={(edge) => {
+            const cycle: EdgeKind[] = ["sequential", "success", "failure", "conditional"];
+            const current = (edge.data as FlowEdgeData)?.kind || "sequential";
+            const next = cycle[(cycle.indexOf(current) + 1) % cycle.length];
+            setEdges((eds) =>
+              eds.map((e) =>
+                e.id === edge.id ? { ...e, data: { ...(e.data || {}), kind: next } } : e,
+              ),
+            );
+          }}
           onDrop={(kind, position, skill) => {
             const id = nextId();
             const data = defaultDataFor(kind);
@@ -825,6 +920,7 @@ function Canvas({
   onConnect: (c: Connection) => void;
   onSelect: (n: Node<FlowNodeData> | null) => void;
   onNodeDoubleClick: (n: Node<FlowNodeData>) => void;
+  onEdgeClick: (e: Edge) => void;
   onDrop: (
     kind: NodeKind,
     position: { x: number; y: number },
@@ -862,8 +958,11 @@ function Canvas({
           onConnect={onConnect}
           onNodeClick={(_, node) => onSelect(node)}
           onNodeDoubleClick={(_, node) => onNodeDoubleClick(node)}
+          onEdgeClick={(_, edge) => onEdgeClick(edge)}
           onPaneClick={() => onSelect(null)}
           nodeTypes={nodeTypes}
+          edgeTypes={edgeTypes}
+          defaultEdgeOptions={{ data: { kind: "sequential" } }}
           defaultViewport={{ x: 0, y: 0, zoom: 1 }}
           proOptions={{ hideAttribution: true }}
         >
@@ -1260,19 +1359,35 @@ function EditModal({
   onRun: () => void;
   onClose: () => void;
 }) {
-  const d = node.data;
+  const [draft, setDraft] = useState<FlowNodeData>(node.data);
+  const d = draft;
+  const dirty = JSON.stringify(draft) !== JSON.stringify(node.data);
+
+  const patch = (p: Partial<FlowNodeData>) => setDraft((prev) => ({ ...prev, ...p }));
+
+  const handleSave = () => {
+    onChange(draft);
+  };
+
+  const handleClose = () => {
+    if (dirty && !confirm("Discard unsaved changes?")) return;
+    onClose();
+  };
 
   useEffect(() => {
-    const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") handleClose();
+      if (e.key === "Enter" && (e.metaKey || e.ctrlKey) && dirty) handleSave();
+    };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [onClose]);
+  }, [dirty]);
 
   return (
     <div
       className="modal-backdrop"
       onClick={(e) => {
-        if (e.target === e.currentTarget) onClose();
+        if (e.target === e.currentTarget) handleClose();
       }}
     >
       <div className="modal" onClick={(e) => e.stopPropagation()}>
@@ -1284,11 +1399,16 @@ function EditModal({
             <div className="modal-title">{d.title || "Untitled"}</div>
           </div>
           <div style={{ display: "flex", gap: 8 }}>
-            <button className="btn btn-primary btn-sm" onClick={onRun}>
-              ▶ Run
+            {dirty && (
+              <button className="btn btn-primary btn-sm" onClick={handleSave}>
+                Save
+              </button>
+            )}
+            <button className="btn btn-sm" onClick={onRun} disabled={dirty}>
+              <IconPlay /> Run
             </button>
-            <button className="btn btn-icon" onClick={onClose} title="Close">
-              ✕
+            <button className="btn btn-icon" onClick={handleClose} title="Close">
+              <IconX />
             </button>
           </div>
         </div>
@@ -1299,7 +1419,7 @@ function EditModal({
               <input
                 className="input"
                 value={d.title}
-                onChange={(e) => onChange({ title: e.target.value })}
+                onChange={(e) => patch({ title: e.target.value })}
               />
             </Field>
             <Field label="Model">
@@ -1307,7 +1427,7 @@ function EditModal({
                 className="input"
                 value={d.model || "auto"}
                 onChange={(e) =>
-                  onChange({ model: e.target.value as ModelChoice })
+                  patch({ model: e.target.value as ModelChoice })
                 }
               >
                 {(Object.keys(MODEL_LABELS) as ModelChoice[]).map((m) => (
@@ -1325,7 +1445,7 @@ function EditModal({
                 className="input"
                 rows={6}
                 value={d.prompt || ""}
-                onChange={(e) => onChange({ prompt: e.target.value })}
+                onChange={(e) => patch({ prompt: e.target.value })}
                 placeholder="What should Claude do?"
               />
             </Field>
@@ -1335,7 +1455,7 @@ function EditModal({
               <select
                 className="input"
                 value={d.skill || ""}
-                onChange={(e) => onChange({ skill: e.target.value })}
+                onChange={(e) => patch({ skill: e.target.value })}
               >
                 <option value="">— Select a skill —</option>
                 {skills.map((s) => (
@@ -1352,7 +1472,7 @@ function EditModal({
                 <input
                   className="input"
                   value={d.subagentType || ""}
-                  onChange={(e) => onChange({ subagentType: e.target.value })}
+                  onChange={(e) => patch({ subagentType: e.target.value })}
                 />
               </Field>
               <Field label="Instructions">
@@ -1360,7 +1480,7 @@ function EditModal({
                   className="input"
                   rows={5}
                   value={d.subagentPrompt || ""}
-                  onChange={(e) => onChange({ subagentPrompt: e.target.value })}
+                  onChange={(e) => patch({ subagentPrompt: e.target.value })}
                 />
               </Field>
             </>
@@ -1371,7 +1491,7 @@ function EditModal({
                 <input
                   className="input"
                   value={d.question || ""}
-                  onChange={(e) => onChange({ question: e.target.value })}
+                  onChange={(e) => patch({ question: e.target.value })}
                   placeholder="What should the LLM judge?"
                 />
               </Field>
@@ -1380,7 +1500,7 @@ function EditModal({
                   className="input"
                   value={(d.branches || []).join(", ")}
                   onChange={(e) =>
-                    onChange({
+                    patch({
                       branches: e.target.value
                         .split(",")
                         .map((s) => s.trim())

@@ -1018,6 +1018,50 @@ textarea.input {
   text-overflow: ellipsis;
 }
 
+.edge-label {
+  position: absolute;
+  pointer-events: all;
+  background: var(--ch-bg);
+  border: 1px solid;
+  border-radius: var(--ch-radius-sm);
+  padding: 3px 6px;
+  font-family: var(--ch-font-mono);
+  font-size: 9px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  font-weight: 600;
+  white-space: nowrap;
+  cursor: pointer;
+  user-select: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.edge-branch-select {
+  font-family: var(--ch-font-mono);
+  font-size: 9px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  font-weight: 600;
+  border: 1px solid;
+  border-radius: var(--ch-radius-sm);
+  padding: 1px 4px;
+  background: var(--ch-bg);
+  cursor: pointer;
+  -webkit-appearance: none;
+  appearance: none;
+  padding-right: 14px;
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='8' height='8' viewBox='0 0 8 8'><path d='M2 3l2 2 2-2' stroke='%232563EB' stroke-width='1.2' fill='none' stroke-linecap='round' stroke-linejoin='round'/></svg>");
+  background-repeat: no-repeat;
+  background-position: right 3px center;
+}
+
+.edge-branch-warn {
+  color: var(--ch-warning);
+  font-size: 8px;
+}
+
 .flow-handle {
   width: 16px !important;
   height: 16px !important;

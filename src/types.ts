@@ -4,6 +4,13 @@ export type NodeKind = "prompt" | "skill" | "subagent" | "assessment";
 
 export type NodeStatus = "idle" | "running" | "success" | "failed";
 
+export type EdgeKind = "sequential" | "success" | "failure" | "conditional";
+
+export interface FlowEdgeData {
+  kind?: EdgeKind;
+  branch?: string; // for conditional edges from an Assessment node
+}
+
 export type ModelChoice = "auto" | "opus" | "sonnet" | "haiku";
 
 export const MODEL_LABELS: Record<ModelChoice, string> = {
