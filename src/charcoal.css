@@ -1,0 +1,68 @@
+/* Charcoal design system tokens — minimal subset for Flowbench */
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap');
+
+:root {
+  /* Backgrounds */
+  --ch-bg: #FFFFFF;
+  --ch-surface: #F7F7F8;
+  --ch-surface-raised: #F0F0F2;
+
+  /* Text */
+  --ch-text: #1A1A1A;
+  --ch-text-secondary: #6B6B6B;
+  --ch-text-tertiary: #9B9B9B;
+  --ch-text-disabled: #C4C4C4;
+
+  /* Borders */
+  --ch-border: #E5E5E7;
+  --ch-border-subtle: #F0F0F2;
+  --ch-border-strong: #D4D4D6;
+
+  /* Accent (black) */
+  --ch-accent: #1A1A1A;
+  --ch-accent-hover: #333333;
+  --ch-accent-active: #000000;
+  --ch-accent-subtle: #F5F5F5;
+
+  /* Status */
+  --ch-success: #16A34A;
+  --ch-warning: #D97706;
+  --ch-error: #DC2626;
+  --ch-info: #2563EB;
+
+  /* Radius */
+  --ch-radius-sm: 4px;
+  --ch-radius-md: 8px;
+  --ch-radius-lg: 12px;
+  --ch-radius-xl: 16px;
+
+  /* Shadows */
+  --ch-shadow: 0 1px 3px rgba(0,0,0,0.08);
+  --ch-shadow-md: 0 4px 12px rgba(0,0,0,0.08);
+  --ch-shadow-lg: 0 8px 24px rgba(0,0,0,0.12);
+
+  /* Type */
+  --ch-font-sans: 'Inter', system-ui, -apple-system, sans-serif;
+  --ch-font-mono: 'JetBrains Mono', ui-monospace, monospace;
+
+  /* Motion */
+  --ch-duration-fast: 0.15s;
+  --ch-duration-normal: 0.2s;
+  --ch-easing: ease-out;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html, body, #root {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+  background: var(--ch-bg);
+  color: var(--ch-text);
+  font-family: var(--ch-font-sans);
+  font-size: 14px;
+  line-height: 1.6;
+  -webkit-font-smoothing: antialiased;
+}
