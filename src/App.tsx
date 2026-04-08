@@ -28,6 +28,8 @@ import { invoke } from "@tauri-apps/api/core";
 import { LiveTerminal } from "./Terminal";
 import { NodeActionsContext } from "./nodeActions";
 import { Panel, PanelGroup, PanelResizeHandle } from "react-resizable-panels";
+import { topoSort, waitForResume } from "./runLoop";
+import { NodeStatus } from "./types";
 
 interface SkillEntry {
   kind: "skill" | "command";
@@ -52,7 +54,23 @@ function FlowbenchApp() {
   const [skills, setSkills] = useState<SkillEntry[]>([]);
   const [menu, setMenu] = useState<{ nodeId: string; x: number; y: number } | null>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
+  const [running, setRunning] = useState(false);
+  const [paused, setPaused] = useState(false);
   const idRef = useRef(0);
+  const pausedRef = useRef(false);
+  const cancelledRef = useRef(false);
+  const stepResolverRef = useRef<(() => void) | null>(null);
+  const [toast, setToast] = useState<{ kind: "success" | "error" | "info"; text: string } | null>(null);
+  const toastTimerRef = useRef<number | null>(null);
+
+  const showToast = useCallback(
+    (kind: "success" | "error" | "info", text: string) => {
+      if (toastTimerRef.current) window.clearTimeout(toastTimerRef.current);
+      setToast({ kind, text });
+      toastTimerRef.current = window.setTimeout(() => setToast(null), 3500);
+    },
+    [],
+  );
 
   const editingNode = editingId ? nodes.find((n) => n.id === editingId) || null : null;
 
@@ -107,6 +125,118 @@ function FlowbenchApp() {
 
   const nodeActions = {
     openMenu: (nodeId: string, x: number, y: number) => setMenu({ nodeId, x, y }),
+  };
+
+  // ─── Run loop ────────────────────────────────────────────────────
+
+  const setNodeStatus = useCallback(
+    (nodeId: string, status: NodeStatus) => {
+      setNodes((nds) =>
+        nds.map((n) =>
+          n.id === nodeId ? { ...n, data: { ...n.data, status } } : n,
+        ),
+      );
+    },
+    [setNodes],
+  );
+
+  const clearAllStatuses = useCallback(() => {
+    setNodes((nds) =>
+      nds.map((n) => ({ ...n, data: { ...n.data, status: "idle" as NodeStatus } })),
+    );
+  }, [setNodes]);
+
+  const runGraph = useCallback(
+    async (mode: "run" | "step") => {
+      if (running) return;
+      const order = topoSort(nodes, edges);
+      if (!order) {
+        console.error("graph has a cycle");
+        return;
+      }
+      const runnable = order.filter((n) => buildPromptForNode(n.data).length > 0);
+      if (runnable.length === 0) return;
+
+      setRunning(true);
+      setPaused(false);
+      pausedRef.current = false;
+      cancelledRef.current = false;
+      clearAllStatuses();
+
+      let succeeded = 0;
+      let failed = 0;
+      try {
+        for (const node of runnable) {
+          // wait for resume if paused
+          await waitForResume(
+            () => pausedRef.current,
+            () => cancelledRef.current,
+          );
+          if (cancelledRef.current) break;
+
+          setNodeStatus(node.id, "running");
+          try {
+            await invoke("run_node", {
+              nodeId: node.id,
+              prompt: buildPromptForNode(node.data),
+            });
+            setNodeStatus(node.id, "success");
+            succeeded++;
+          } catch (err) {
+            console.error(`node ${node.id} failed`, err);
+            setNodeStatus(node.id, "failed");
+            failed++;
+            // pause for human (Phase 7 will surface this)
+            pausedRef.current = true;
+            setPaused(true);
+            // hold here
+            await waitForResume(
+              () => pausedRef.current,
+              () => cancelledRef.current,
+            );
+            if (cancelledRef.current) break;
+          }
+
+          // step mode: pause after each successful node
+          if (mode === "step") {
+            pausedRef.current = true;
+            setPaused(true);
+          }
+        }
+      } finally {
+        setRunning(false);
+        setPaused(false);
+        pausedRef.current = false;
+        cancelledRef.current = false;
+        if (failed > 0) {
+          showToast("error", `Run finished with ${failed} failed node${failed > 1 ? "s" : ""}`);
+        } else if (succeeded > 0) {
+          showToast("success", `Run complete · ${succeeded} node${succeeded > 1 ? "s" : ""}`);
+        }
+      }
+    },
+    [running, nodes, edges, clearAllStatuses, setNodeStatus, showToast],
+  );
+
+  const handleRun = () => runGraph("run");
+  const handleStep = () => {
+    if (running && paused) {
+      // already running and paused — advance one node by unpausing briefly
+      pausedRef.current = false;
+      setPaused(false);
+    } else {
+      runGraph("step");
+    }
+  };
+  const handlePause = () => {
+    if (!running) return;
+    if (paused) {
+      pausedRef.current = false;
+      setPaused(false);
+    } else {
+      pausedRef.current = true;
+      setPaused(true);
+    }
   };
 
   const handleSave = async () => {
@@ -191,6 +321,11 @@ function FlowbenchApp() {
         flowName={flowName}
         onSave={handleSave}
         onOpen={handleOpen}
+        onRun={handleRun}
+        onStep={handleStep}
+        onPause={handlePause}
+        running={running}
+        paused={paused}
       />
       <PanelGroup direction="horizontal" className="main">
         <Panel
@@ -278,6 +413,14 @@ function FlowbenchApp() {
         />
       )}
 
+      {toast && (
+        <div className={`toast toast-${toast.kind}`}>
+          {toast.kind === "success" && <span className="toast-icon">✓</span>}
+          {toast.kind === "error" && <span className="toast-icon">✕</span>}
+          <span>{toast.text}</span>
+        </div>
+      )}
+
       {editingNode && (
         <EditModal
           node={editingNode}
@@ -297,11 +440,22 @@ function TopBar({
   flowName,
   onSave,
   onOpen,
+  onRun,
+  onStep,
+  onPause,
+  running,
+  paused,
 }: {
   flowName: string;
   onSave: () => void;
   onOpen: () => void;
+  onRun: () => void;
+  onStep: () => void;
+  onPause: () => void;
+  running: boolean;
+  paused: boolean;
 }) {
+  const runLabel = running ? (paused ? "Paused" : "Running") : "Run";
   return (
     <header className="topbar">
       <div className="topbar-left">
@@ -318,11 +472,49 @@ function TopBar({
         <span className="flow-name">{flowName}.flow.json</span>
       </div>
       <div className="topbar-right">
-        <button className="btn btn-primary" title="Run">▶ Run</button>
-        <button className="btn btn-icon" title="Step">▶|</button>
-        <button className="btn btn-icon" title="Pause">⏸</button>
+        <button
+          className="btn btn-primary"
+          onClick={onRun}
+          disabled={running && !paused}
+          title="Run the whole graph"
+        >
+          <IconPlay /> {runLabel}
+        </button>
+        <button
+          className="btn btn-icon"
+          onClick={onStep}
+          title="Step one node"
+        >
+          <IconStep />
+        </button>
+        <button
+          className="btn btn-icon"
+          onClick={onPause}
+          title={paused ? "Resume" : "Pause"}
+          disabled={!running}
+        >
+          {paused ? <IconPlay /> : <IconPause />}
+        </button>
       </div>
     </header>
+  );
+}
+
+function IconStep() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+      <path d="M3 3L8 7L3 11V3Z" fill="currentColor" />
+      <line x1="10" y1="3" x2="10" y2="11" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+function IconPause() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+      <rect x="3.5" y="3" width="2.5" height="8" rx="0.5" fill="currentColor" />
+      <rect x="8" y="3" width="2.5" height="8" rx="0.5" fill="currentColor" />
+    </svg>
   );
 }
 

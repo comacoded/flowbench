@@ -2,9 +2,12 @@
 
 export type NodeKind = "prompt" | "skill" | "subagent" | "assessment";
 
+export type NodeStatus = "idle" | "running" | "success" | "failed";
+
 export interface FlowNodeData {
   kind: NodeKind;
   title: string;
+  status?: NodeStatus;
   // Prompt
   prompt?: string;
   // Skill

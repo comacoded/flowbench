@@ -71,7 +71,11 @@ export function FlowNode({ id, data, selected }: NodeProps<FlowNodeData>) {
   const actions = useNodeActions();
 
   return (
-    <div className={`flow-node ${selected ? "flow-node-selected" : ""}`}>
+    <div
+      className={`flow-node ${selected ? "flow-node-selected" : ""} ${
+        data.status ? `flow-node-${data.status}` : ""
+      }`}
+    >
       <Handle id="t-top" type="target" position={Position.Top} className="flow-handle" />
       <Handle id="t-left" type="target" position={Position.Left} className="flow-handle" />
       <Handle id="s-right" type="source" position={Position.Right} className="flow-handle" />
