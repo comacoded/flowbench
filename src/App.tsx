@@ -180,6 +180,7 @@ function FlowbenchApp() {
 
   const nodeActions = {
     openMenu: (nodeId: string, x: number, y: number) => setMenu({ nodeId, x, y }),
+    openEditor: (nodeId: string) => setEditingId(nodeId),
   };
 
   // ─── Run loop ────────────────────────────────────────────────────
@@ -1015,6 +1016,7 @@ function Canvas({
           edgeTypes={edgeTypes}
           defaultEdgeOptions={{ data: { kind: "sequential" } }}
           defaultViewport={{ x: 0, y: 0, zoom: 1 }}
+          zoomOnDoubleClick={false}
           proOptions={{ hideAttribution: true }}
         >
           <Background

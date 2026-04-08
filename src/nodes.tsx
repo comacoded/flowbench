@@ -75,6 +75,10 @@ export function FlowNode({ id, data, selected }: NodeProps<FlowNodeData>) {
       className={`flow-node ${selected ? "flow-node-selected" : ""} ${
         data.status ? `flow-node-${data.status}` : ""
       }`}
+      onDoubleClick={(e) => {
+        e.stopPropagation();
+        actions.openEditor(id);
+      }}
     >
       <Handle id="t-top" type="target" position={Position.Top} className="flow-handle" />
       <Handle id="t-left" type="target" position={Position.Left} className="flow-handle" />
