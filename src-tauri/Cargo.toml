@@ -1,6 +1,7 @@
 [package]
 name = "flowbench"
 version = "0.1.0"
+# Display version (Cargo doesn't accept -mvp suffixes; user-facing version is 0.1.0-mvp)
 description = "A Tauri App"
 authors = ["you"]
 edition = "2021"
