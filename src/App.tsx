@@ -25,6 +25,9 @@ import {
 } from "./types";
 import { saveFlow, openFlow } from "./storage";
 import { invoke } from "@tauri-apps/api/core";
+import { LiveTerminal } from "./Terminal";
+import { NodeActionsContext } from "./nodeActions";
+import { Panel, PanelGroup, PanelResizeHandle } from "react-resizable-panels";
 
 interface SkillEntry {
   kind: "skill" | "command";
@@ -44,11 +47,14 @@ function App() {
 function FlowbenchApp() {
   const [nodes, setNodes, onNodesChange] = useNodesState<FlowNodeData>([]);
   const [edges, setEdges, onEdgesChange] = useEdgesState([]);
-  const [selected, setSelected] = useState<Node<FlowNodeData> | null>(null);
   const [tab, setTab] = useState<"live" | "free" | "logs">("live");
   const [flowName, setFlowName] = useState("untitled");
   const [skills, setSkills] = useState<SkillEntry[]>([]);
+  const [menu, setMenu] = useState<{ nodeId: string; x: number; y: number } | null>(null);
+  const [editingId, setEditingId] = useState<string | null>(null);
   const idRef = useRef(0);
+
+  const editingNode = editingId ? nodes.find((n) => n.id === editingId) || null : null;
 
   useEffect(() => {
     invoke<SkillEntry[]>("list_skills")
@@ -63,18 +69,45 @@ function FlowbenchApp() {
     [setEdges],
   );
 
-  const updateSelected = useCallback(
-    (patch: Partial<FlowNodeData>) => {
-      if (!selected) return;
+  const updateNodeData = useCallback(
+    (nodeId: string, patch: Partial<FlowNodeData>) => {
       setNodes((nds) =>
         nds.map((n) =>
-          n.id === selected.id ? { ...n, data: { ...n.data, ...patch } } : n,
+          n.id === nodeId ? { ...n, data: { ...n.data, ...patch } } : n,
         ),
       );
-      setSelected((s) => (s ? { ...s, data: { ...s.data, ...patch } } : s));
     },
-    [selected, setNodes],
+    [setNodes],
   );
+
+  const deleteNode = useCallback(
+    (nodeId: string) => {
+      setNodes((nds) => nds.filter((n) => n.id !== nodeId));
+      setEdges((eds) => eds.filter((e) => e.source !== nodeId && e.target !== nodeId));
+      setMenu(null);
+      if (editingId === nodeId) setEditingId(null);
+    },
+    [editingId, setNodes, setEdges],
+  );
+
+  const runNode = useCallback(
+    async (nodeId: string) => {
+      const node = nodes.find((n) => n.id === nodeId);
+      if (!node) return;
+      const prompt = buildPromptForNode(node.data);
+      if (!prompt) return;
+      try {
+        await invoke("run_node", { nodeId: node.id, prompt });
+      } catch (err) {
+        console.error("run_node failed", err);
+      }
+    },
+    [nodes],
+  );
+
+  const nodeActions = {
+    openMenu: (nodeId: string, x: number, y: number) => setMenu({ nodeId, x, y }),
+  };
 
   const handleSave = async () => {
     const path = await saveFlow(flowName, nodes, edges);
@@ -152,13 +185,20 @@ function FlowbenchApp() {
   };
 
   return (
-    <div className="app">
+   <NodeActionsContext.Provider value={nodeActions}>
+    <div className="app app-no-inspector">
       <TopBar
         flowName={flowName}
         onSave={handleSave}
         onOpen={handleOpen}
       />
-      <div className="main">
+      <PanelGroup direction="horizontal" className="main">
+        <Panel
+          defaultSize={18}
+          minSize={12}
+          maxSize={35}
+          className="panel-wrap"
+        >
         <Library
           skills={skills}
           onAdd={(kind) => {
@@ -187,13 +227,16 @@ function FlowbenchApp() {
             setNodes((nds) => [...nds, newNode]);
           }}
         />
+        </Panel>
+        <PanelResizeHandle className="resize-handle" />
+        <Panel minSize={30} className="panel-wrap">
         <Canvas
           nodes={nodes}
           edges={edges}
           onNodesChange={onNodesChange}
           onEdgesChange={onEdgesChange}
           onConnect={onConnect}
-          onSelect={setSelected}
+          onSelect={() => {}}
           onDrop={(kind, position, skill) => {
             const id = nextId();
             const data = defaultDataFor(kind);
@@ -207,10 +250,45 @@ function FlowbenchApp() {
             setNodes((nds) => [...nds, newNode]);
           }}
         />
-        <TerminalPanel tab={tab} setTab={setTab} />
-      </div>
-      <Inspector selected={selected} onChange={updateSelected} skills={skills} />
+        </Panel>
+        <PanelResizeHandle className="resize-handle" />
+        <Panel
+          defaultSize={28}
+          minSize={15}
+          maxSize={50}
+          className="panel-wrap"
+        >
+          <TerminalPanel tab={tab} setTab={setTab} />
+        </Panel>
+      </PanelGroup>
+      {menu && (
+        <NodeMenu
+          x={menu.x}
+          y={menu.y}
+          onRun={() => {
+            runNode(menu.nodeId);
+            setMenu(null);
+          }}
+          onEdit={() => {
+            setEditingId(menu.nodeId);
+            setMenu(null);
+          }}
+          onDelete={() => deleteNode(menu.nodeId)}
+          onClose={() => setMenu(null)}
+        />
+      )}
+
+      {editingNode && (
+        <EditModal
+          node={editingNode}
+          skills={skills}
+          onChange={(patch) => updateNodeData(editingNode.id, patch)}
+          onRun={() => runNode(editingNode.id)}
+          onClose={() => setEditingId(null)}
+        />
+      )}
     </div>
+   </NodeActionsContext.Provider>
   );
 }
 
@@ -229,8 +307,14 @@ function TopBar({
       <div className="topbar-left">
         <div className="logo">Flowbench</div>
         <div className="divider" />
-        <button className="btn" onClick={onOpen}>Open</button>
-        <button className="btn" onClick={onSave}>Save</button>
+        <button className="btn btn-icon" onClick={onOpen} title="Open flow">
+          <IconFolder />
+        </button>
+        <button className="btn btn-icon" onClick={onSave} title="Save flow">
+          <IconSave />
+        </button>
+      </div>
+      <div className="topbar-center">
         <span className="flow-name">{flowName}.flow.json</span>
       </div>
       <div className="topbar-right">
@@ -239,6 +323,46 @@ function TopBar({
         <button className="btn btn-icon" title="Pause">⏸</button>
       </div>
     </header>
+  );
+}
+
+function IconFolder() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+      <path
+        d="M1.5 3.5C1.5 2.95 1.95 2.5 2.5 2.5H5.5L7 4H11.5C12.05 4 12.5 4.45 12.5 5V10.5C12.5 11.05 12.05 11.5 11.5 11.5H2.5C1.95 11.5 1.5 11.05 1.5 10.5V3.5Z"
+        stroke="currentColor"
+        strokeWidth="1.2"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
+
+function IconSave() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+      <path
+        d="M2.5 2C2.5 1.72 2.72 1.5 3 1.5H9.5L12 4V11C12 11.55 11.55 12 11 12H3C2.45 12 2 11.55 2 11V2.5Z"
+        stroke="currentColor"
+        strokeWidth="1.2"
+        strokeLinejoin="round"
+      />
+      <path
+        d="M4.5 1.5V4.5H8.5V1.5"
+        stroke="currentColor"
+        strokeWidth="1.2"
+        strokeLinejoin="round"
+      />
+      <rect
+        x="4.5"
+        y="7"
+        width="5"
+        height="4.5"
+        stroke="currentColor"
+        strokeWidth="1.2"
+      />
+    </svg>
   );
 }
 
@@ -280,6 +404,7 @@ function Library({
           draggable
           onDragStart={(e) => onDragStart(e, k)}
         >
+          <span className="lib-grip" title="Drag to canvas">⋮⋮</span>
           <div className="lib-item-body">
             <div className="lib-item-name">{NODE_LABELS[k]}</div>
             <div className="lib-item-hint">{NODE_HINTS[k]}</div>
@@ -319,6 +444,7 @@ function Library({
               onDragStart={(e) => onDragStart(e, "skill", s.name)}
               title={s.description}
             >
+              <span className="lib-grip" title="Drag to canvas">⋮⋮</span>
               <div className="lib-item-body">
                 <div className="lib-item-name">{prettifySkillName(s.name)}</div>
                 <div className="lib-item-hint">{s.kind}</div>
@@ -443,10 +569,10 @@ function TerminalPanel({
           </button>
         ))}
       </div>
-      <div className="terminal-body">
-        {tab === "live" && (
-          <div className="empty">No node running. Click Run to start.</div>
-        )}
+      <div className="terminal-body" style={{ padding: 0 }}>
+        <div style={{ display: tab === "live" ? "flex" : "none", flex: 1, minHeight: 0 }}>
+          <LiveTerminal />
+        </div>
         {tab === "free" && <div className="empty">Free CC session — v2</div>}
         {tab === "logs" && <div className="empty">Pipeline logs — v2</div>}
       </div>
@@ -455,30 +581,141 @@ function TerminalPanel({
 }
 
 /* ─────────────── Inspector ─────────────── */
-function Inspector({
-  selected,
-  onChange,
-  skills,
-}: {
-  selected: Node<FlowNodeData> | null;
-  onChange: (patch: Partial<FlowNodeData>) => void;
-  skills: SkillEntry[];
-}) {
-  if (!selected) {
-    return (
-      <footer className="panel inspector">
-        <div className="section-label">Inspector</div>
-        <div className="empty">Select a node to inspect its properties.</div>
-      </footer>
-    );
-  }
+function buildPromptForNode(d: FlowNodeData): string {
+  if (d.kind === "prompt") return d.prompt || "";
+  if (d.kind === "skill") return d.skill ? `/${d.skill}` : "";
+  if (d.kind === "subagent") return d.subagentPrompt || "";
+  if (d.kind === "assessment") return d.question || "";
+  return "";
+}
 
-  const d = selected.data;
+function NodeMenu({
+  x,
+  y,
+  onRun,
+  onEdit,
+  onDelete,
+  onClose,
+}: {
+  x: number;
+  y: number;
+  onRun: () => void;
+  onEdit: () => void;
+  onDelete: () => void;
+  onClose: () => void;
+}) {
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();
+    const onClick = (e: MouseEvent) => {
+      const t = e.target as HTMLElement;
+      if (!t.closest(".node-menu")) onClose();
+    };
+    window.addEventListener("keydown", onKey);
+    window.addEventListener("mousedown", onClick);
+    return () => {
+      window.removeEventListener("keydown", onKey);
+      window.removeEventListener("mousedown", onClick);
+    };
+  }, [onClose]);
+
   return (
-    <footer className="panel inspector">
-      <div className="inspector-grid">
-        <div>
-          <div className="section-label">{NODE_LABELS[d.kind]}</div>
+    <div className="node-menu" style={{ left: x, top: y }}>
+      <button className="node-menu-item" onClick={onRun}>
+        <span className="node-menu-icon"><IconPlay /></span> Run
+      </button>
+      <button className="node-menu-item" onClick={onEdit}>
+        <span className="node-menu-icon"><IconPencil /></span> Edit
+      </button>
+      <div className="node-menu-divider" />
+      <button className="node-menu-item node-menu-danger" onClick={onDelete}>
+        <span className="node-menu-icon"><IconX /></span> Delete
+      </button>
+    </div>
+  );
+}
+
+function IconPlay() {
+  return (
+    <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
+      <path d="M3 2L10 6L3 10V2Z" fill="currentColor" />
+    </svg>
+  );
+}
+
+function IconPencil() {
+  return (
+    <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
+      <path
+        d="M8.5 1.5L10.5 3.5L4 10H2V8L8.5 1.5Z"
+        stroke="currentColor"
+        strokeWidth="1.2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
+
+function IconX() {
+  return (
+    <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
+      <path
+        d="M3 3L9 9M9 3L3 9"
+        stroke="currentColor"
+        strokeWidth="1.4"
+        strokeLinecap="round"
+      />
+    </svg>
+  );
+}
+
+function EditModal({
+  node,
+  skills,
+  onChange,
+  onRun,
+  onClose,
+}: {
+  node: Node<FlowNodeData>;
+  skills: SkillEntry[];
+  onChange: (patch: Partial<FlowNodeData>) => void;
+  onRun: () => void;
+  onClose: () => void;
+}) {
+  const d = node.data;
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose]);
+
+  return (
+    <div
+      className="modal-backdrop"
+      onClick={(e) => {
+        if (e.target === e.currentTarget) onClose();
+      }}
+    >
+      <div className="modal" onClick={(e) => e.stopPropagation()}>
+        <div className="modal-head">
+          <div>
+            <div className="section-label" style={{ padding: 0, marginBottom: 4 }}>
+              {NODE_LABELS[d.kind]}
+            </div>
+            <div className="modal-title">{d.title || "Untitled"}</div>
+          </div>
+          <div style={{ display: "flex", gap: 8 }}>
+            <button className="btn btn-primary btn-sm" onClick={onRun}>
+              ▶ Run
+            </button>
+            <button className="btn btn-icon" onClick={onClose} title="Close">
+              ✕
+            </button>
+          </div>
+        </div>
+
+        <div className="modal-body">
           <Field label="Title">
             <input
               className="input"
@@ -486,14 +723,12 @@ function Inspector({
               onChange={(e) => onChange({ title: e.target.value })}
             />
           </Field>
-        </div>
 
-        <div className="inspector-main">
           {d.kind === "prompt" && (
             <Field label="Prompt">
               <textarea
                 className="input"
-                rows={4}
+                rows={6}
                 value={d.prompt || ""}
                 onChange={(e) => onChange({ prompt: e.target.value })}
                 placeholder="What should Claude do?"
@@ -528,11 +763,9 @@ function Inspector({
               <Field label="Instructions">
                 <textarea
                   className="input"
-                  rows={3}
+                  rows={5}
                   value={d.subagentPrompt || ""}
-                  onChange={(e) =>
-                    onChange({ subagentPrompt: e.target.value })
-                  }
+                  onChange={(e) => onChange({ subagentPrompt: e.target.value })}
                 />
               </Field>
             </>
@@ -565,7 +798,7 @@ function Inspector({
           )}
         </div>
       </div>
-    </footer>
+    </div>
   );
 }
 

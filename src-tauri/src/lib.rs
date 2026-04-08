@@ -1,3 +1,5 @@
+mod runner;
+
 use serde::Serialize;
 use std::fs;
 use std::path::PathBuf;
@@ -143,7 +145,7 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_fs::init())
-        .invoke_handler(tauri::generate_handler![list_skills])
+        .invoke_handler(tauri::generate_handler![list_skills, runner::run_node])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }
