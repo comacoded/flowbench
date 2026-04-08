@@ -65,4 +65,217 @@ html, body, #root {
   font-size: 14px;
   line-height: 1.6;
   -webkit-font-smoothing: antialiased;
+  overflow: hidden;
+}
+
+button {
+  font-family: inherit;
+  font-size: inherit;
+  cursor: pointer;
+  border: none;
+  background: none;
+  color: inherit;
+}
+
+/* ─────────────── App layout ─────────────── */
+
+.app {
+  height: 100vh;
+  display: grid;
+  grid-template-rows: 48px 1fr 200px;
+}
+
+.main {
+  display: grid;
+  grid-template-columns: 240px 1fr 360px;
+  min-height: 0;
+}
+
+.panel {
+  background: var(--ch-bg);
+  min-height: 0;
+  min-width: 0;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+/* ─────────────── Top bar ─────────────── */
+
+.topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 16px;
+  border-bottom: 1px solid var(--ch-border);
+  background: var(--ch-bg);
+}
+
+.topbar-left {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.logo {
+  font-weight: 800;
+  letter-spacing: -0.01em;
+  font-size: 15px;
+  color: var(--ch-text);
+}
+
+.divider {
+  width: 1px;
+  height: 20px;
+  background: var(--ch-border);
+  margin: 0 4px;
+}
+
+.btn {
+  padding: 6px 12px;
+  border-radius: var(--ch-radius-sm);
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--ch-text-secondary);
+  transition: background var(--ch-duration-fast) var(--ch-easing),
+              color var(--ch-duration-fast) var(--ch-easing);
+}
+
+.btn:hover {
+  background: var(--ch-accent-subtle);
+  color: var(--ch-text);
+}
+
+.btn-primary {
+  background: var(--ch-accent);
+  color: var(--ch-bg);
+  font-weight: 600;
+}
+
+.btn-primary:hover {
+  background: var(--ch-accent-hover);
+  color: var(--ch-bg);
+}
+
+.flow-name {
+  font-family: var(--ch-font-mono);
+  font-size: 11px;
+  color: var(--ch-text-tertiary);
+}
+
+/* ─────────────── Library ─────────────── */
+
+.library {
+  border-right: 1px solid var(--ch-border);
+  padding: 16px 12px;
+  overflow-y: auto;
+}
+
+.section-label {
+  font-family: var(--ch-font-mono);
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--ch-text-tertiary);
+  padding: 12px 8px 8px;
+  font-weight: 600;
+}
+
+.lib-item {
+  padding: 10px 12px;
+  border: 1px solid var(--ch-border);
+  border-radius: var(--ch-radius-md);
+  margin-bottom: 6px;
+  background: var(--ch-bg);
+  cursor: grab;
+  transition: border-color var(--ch-duration-fast) var(--ch-easing),
+              box-shadow var(--ch-duration-fast) var(--ch-easing);
+}
+
+.lib-item:hover {
+  border-color: var(--ch-border-strong);
+  box-shadow: var(--ch-shadow);
+}
+
+.lib-item:active {
+  cursor: grabbing;
+}
+
+.lib-item-name {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ch-text);
+}
+
+.lib-item-hint {
+  font-size: 11px;
+  color: var(--ch-text-tertiary);
+  margin-top: 2px;
+}
+
+.empty {
+  padding: 12px;
+  font-size: 11px;
+  color: var(--ch-text-tertiary);
+  font-style: italic;
+}
+
+/* ─────────────── Canvas ─────────────── */
+
+.canvas {
+  background: var(--ch-surface);
+  position: relative;
+}
+
+.react-flow__attribution { display: none; }
+
+/* ─────────────── Terminal ─────────────── */
+
+.terminal {
+  border-left: 1px solid var(--ch-border);
+  background: var(--ch-bg);
+}
+
+.tabs {
+  display: flex;
+  border-bottom: 1px solid var(--ch-border);
+  background: var(--ch-surface);
+}
+
+.tab {
+  padding: 10px 16px;
+  font-size: 11px;
+  font-family: var(--ch-font-mono);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--ch-text-tertiary);
+  border-bottom: 2px solid transparent;
+  transition: color var(--ch-duration-fast) var(--ch-easing),
+              border-color var(--ch-duration-fast) var(--ch-easing);
+}
+
+.tab:hover {
+  color: var(--ch-text-secondary);
+}
+
+.tab-active {
+  color: var(--ch-text);
+  border-bottom-color: var(--ch-accent);
+}
+
+.terminal-body {
+  flex: 1;
+  font-family: var(--ch-font-mono);
+  font-size: 12px;
+  padding: 12px;
+  overflow-y: auto;
+  color: var(--ch-text-secondary);
+}
+
+/* ─────────────── Inspector ─────────────── */
+
+.inspector {
+  border-top: 1px solid var(--ch-border);
+  padding: 12px 16px;
+  background: var(--ch-bg);
 }
