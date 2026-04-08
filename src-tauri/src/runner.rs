@@ -22,16 +22,23 @@ pub async fn run_node(
     app: AppHandle,
     node_id: String,
     prompt: String,
+    model: Option<String>,
 ) -> Result<NodeResult, String> {
     // Notify UI that the node is starting.
     let _ = app.emit(
         "node-started",
-        serde_json::json!({ "node_id": node_id }),
+        serde_json::json!({ "node_id": node_id, "model": model }),
     );
 
-    let mut child = Command::new("claude")
-        .arg("-p")
-        .arg(&prompt)
+    let mut cmd = Command::new("claude");
+    cmd.arg("-p").arg(&prompt);
+    if let Some(m) = model.as_ref() {
+        if !m.is_empty() && m != "auto" {
+            cmd.arg("--model").arg(m);
+        }
+    }
+
+    let mut child = cmd
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped())
         .spawn()

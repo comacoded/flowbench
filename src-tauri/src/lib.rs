@@ -1,3 +1,4 @@
+mod orchestrator;
 mod runner;
 
 use serde::Serialize;
@@ -145,7 +146,11 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_fs::init())
-        .invoke_handler(tauri::generate_handler![list_skills, runner::run_node])
+        .invoke_handler(tauri::generate_handler![
+            list_skills,
+            runner::run_node,
+            orchestrator::plan_graph
+        ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }

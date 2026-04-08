@@ -29,13 +29,36 @@ import { LiveTerminal } from "./Terminal";
 import { NodeActionsContext } from "./nodeActions";
 import { Panel, PanelGroup, PanelResizeHandle } from "react-resizable-panels";
 import { topoSort, waitForResume } from "./runLoop";
-import { NodeStatus } from "./types";
+import { NodeStatus, ModelChoice, MODEL_LABELS } from "./types";
 
 interface SkillEntry {
   kind: "skill" | "command";
   name: string;
   description: string;
   path: string;
+}
+
+interface PlanEntry {
+  from: string;
+  to: string;
+  instruction: string;
+}
+
+interface ContextPlan {
+  edges: PlanEntry[];
+  raw: string;
+}
+
+interface NodeRunResult {
+  nodeId: string;
+  title: string;
+  kind: NodeKind;
+  status: "running" | "success" | "failed";
+  model: ModelChoice;
+  startedAt: number;
+  endedAt?: number;
+  output?: string;
+  error?: string;
 }
 
 function App() {
@@ -49,13 +72,18 @@ function App() {
 function FlowbenchApp() {
   const [nodes, setNodes, onNodesChange] = useNodesState<FlowNodeData>([]);
   const [edges, setEdges, onEdgesChange] = useEdgesState([]);
-  const [tab, setTab] = useState<"live" | "free" | "logs">("live");
+  const [tab, setTab] = useState<"results" | "live" | "plan" | "free">("results");
+  const [contextPlan, setContextPlan] = useState<ContextPlan | null>(null);
+  const [nodeResults, setNodeResults] = useState<Record<string, NodeRunResult>>({});
   const [flowName, setFlowName] = useState("untitled");
   const [skills, setSkills] = useState<SkillEntry[]>([]);
   const [menu, setMenu] = useState<{ nodeId: string; x: number; y: number } | null>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [running, setRunning] = useState(false);
   const [paused, setPaused] = useState(false);
+  const [preflightOpen, setPreflightOpen] = useState<"run" | "step" | null>(null);
+  const [orchestratorModel, setOrchestratorModel] = useState<ModelChoice>("auto");
+  const [runOverrides, setRunOverrides] = useState<Record<string, ModelChoice>>({});
   const idRef = useRef(0);
   const pausedRef = useRef(false);
   const cancelledRef = useRef(false);
@@ -115,7 +143,11 @@ function FlowbenchApp() {
       const prompt = buildPromptForNode(node.data);
       if (!prompt) return;
       try {
-        await invoke("run_node", { nodeId: node.id, prompt });
+        await invoke("run_node", {
+          nodeId: node.id,
+          prompt,
+          model: resolveModel(node.data.model),
+        });
       } catch (err) {
         console.error("run_node failed", err);
       }
@@ -147,7 +179,7 @@ function FlowbenchApp() {
   }, [setNodes]);
 
   const runGraph = useCallback(
-    async (mode: "run" | "step") => {
+    async (mode: "run" | "step", overrides: Record<string, ModelChoice> = {}) => {
       if (running) return;
       const order = topoSort(nodes, edges);
       if (!order) {
@@ -163,8 +195,44 @@ function FlowbenchApp() {
       cancelledRef.current = false;
       clearAllStatuses();
 
+      // Plan-pass: ask the orchestrator how context should flow.
+      let plan: ContextPlan | null = null;
+      try {
+        const summaryNodes = runnable.map((n) => ({
+          id: n.id,
+          kind: n.data.kind,
+          title: n.data.title || "",
+          intent: buildPromptForNode(n.data),
+        }));
+        const summaryEdges = edges
+          .filter(
+            (e) =>
+              runnable.some((n) => n.id === e.source) &&
+              runnable.some((n) => n.id === e.target),
+          )
+          .map((e) => ({ from: e.source, to: e.target }));
+        if (summaryEdges.length > 0) {
+          plan = await invoke<ContextPlan>("plan_graph", {
+            nodes: summaryNodes,
+            edges: summaryEdges,
+            model: resolveModel(orchestratorModel),
+          });
+          setContextPlan(plan);
+        } else {
+          setContextPlan({ edges: [], raw: "(graph has no edges)" });
+        }
+      } catch (err) {
+        console.error("plan_graph failed", err);
+        setContextPlan({
+          edges: [],
+          raw: `Plan-pass failed:\n${String(err)}\n\nFalling back to no context routing.`,
+        });
+      }
+
+      const outputs: Record<string, string> = {};
       let succeeded = 0;
       let failed = 0;
+      setNodeResults({});
       try {
         for (const node of runnable) {
           // wait for resume if paused
@@ -175,16 +243,66 @@ function FlowbenchApp() {
           if (cancelledRef.current) break;
 
           setNodeStatus(node.id, "running");
-          try {
-            await invoke("run_node", {
+          const effectiveModel: ModelChoice =
+            overrides[node.id] || node.data.model || "auto";
+          setNodeResults((prev) => ({
+            ...prev,
+            [node.id]: {
               nodeId: node.id,
-              prompt: buildPromptForNode(node.data),
+              title: node.data.title || "Untitled",
+              kind: node.data.kind,
+              status: "running",
+              model: effectiveModel,
+              startedAt: Date.now(),
+            },
+          }));
+          try {
+            // Build context from upstream outputs per the orchestrator plan.
+            const incoming = (plan?.edges || []).filter(
+              (pe) => pe.to === node.id && pe.instruction.toLowerCase() !== "none",
+            );
+            let contextPrefix = "";
+            for (const pe of incoming) {
+              const upstreamOut = outputs[pe.from];
+              if (!upstreamOut) continue;
+              const upstreamTitle =
+                runnable.find((n) => n.id === pe.from)?.data.title || pe.from;
+              contextPrefix += `\n\n--- context from "${upstreamTitle}" (${pe.instruction}) ---\n${upstreamOut.trim()}\n--- end context ---`;
+            }
+
+            const finalPrompt = contextPrefix
+              ? `${contextPrefix}\n\n${buildPromptForNode(node.data)}`
+              : buildPromptForNode(node.data);
+
+            const result = await invoke<{ output: string }>("run_node", {
+              nodeId: node.id,
+              prompt: finalPrompt,
+              model: resolveModel(effectiveModel),
             });
+            outputs[node.id] = result.output || "";
             setNodeStatus(node.id, "success");
+            setNodeResults((prev) => ({
+              ...prev,
+              [node.id]: {
+                ...prev[node.id],
+                status: "success",
+                endedAt: Date.now(),
+                output: result.output || "",
+              },
+            }));
             succeeded++;
           } catch (err) {
             console.error(`node ${node.id} failed`, err);
             setNodeStatus(node.id, "failed");
+            setNodeResults((prev) => ({
+              ...prev,
+              [node.id]: {
+                ...prev[node.id],
+                status: "failed",
+                endedAt: Date.now(),
+                error: String(err),
+              },
+            }));
             failed++;
             // pause for human (Phase 7 will surface this)
             pausedRef.current = true;
@@ -215,18 +333,26 @@ function FlowbenchApp() {
         }
       }
     },
-    [running, nodes, edges, clearAllStatuses, setNodeStatus, showToast],
+    [running, nodes, edges, clearAllStatuses, setNodeStatus, showToast, orchestratorModel],
   );
 
-  const handleRun = () => runGraph("run");
+  const handleRun = () => {
+    setRunOverrides({});
+    setPreflightOpen("run");
+  };
   const handleStep = () => {
     if (running && paused) {
-      // already running and paused — advance one node by unpausing briefly
       pausedRef.current = false;
       setPaused(false);
     } else {
-      runGraph("step");
+      setRunOverrides({});
+      setPreflightOpen("step");
     }
+  };
+  const confirmPreflight = () => {
+    const mode = preflightOpen!;
+    setPreflightOpen(null);
+    runGraph(mode, runOverrides);
   };
   const handlePause = () => {
     if (!running) return;
@@ -372,6 +498,7 @@ function FlowbenchApp() {
           onEdgesChange={onEdgesChange}
           onConnect={onConnect}
           onSelect={() => {}}
+          onNodeDoubleClick={(n) => setEditingId(n.id)}
           onDrop={(kind, position, skill) => {
             const id = nextId();
             const data = defaultDataFor(kind);
@@ -393,7 +520,12 @@ function FlowbenchApp() {
           maxSize={50}
           className="panel-wrap"
         >
-          <TerminalPanel tab={tab} setTab={setTab} />
+          <TerminalPanel
+            tab={tab}
+            setTab={setTab}
+            contextPlan={contextPlan}
+            nodeResults={nodeResults}
+          />
         </Panel>
       </PanelGroup>
       {menu && (
@@ -410,6 +542,20 @@ function FlowbenchApp() {
           }}
           onDelete={() => deleteNode(menu.nodeId)}
           onClose={() => setMenu(null)}
+        />
+      )}
+
+      {preflightOpen && (
+        <PreflightModal
+          mode={preflightOpen}
+          nodes={nodes}
+          edges={edges}
+          orchestratorModel={orchestratorModel}
+          setOrchestratorModel={setOrchestratorModel}
+          overrides={runOverrides}
+          setOverrides={setRunOverrides}
+          onConfirm={confirmPreflight}
+          onClose={() => setPreflightOpen(null)}
         />
       )}
 
@@ -678,6 +824,7 @@ function Canvas({
   onEdgesChange: any;
   onConnect: (c: Connection) => void;
   onSelect: (n: Node<FlowNodeData> | null) => void;
+  onNodeDoubleClick: (n: Node<FlowNodeData>) => void;
   onDrop: (
     kind: NodeKind,
     position: { x: number; y: number },
@@ -714,6 +861,7 @@ function Canvas({
           onEdgesChange={onEdgesChange}
           onConnect={onConnect}
           onNodeClick={(_, node) => onSelect(node)}
+          onNodeDoubleClick={(_, node) => onNodeDoubleClick(node)}
           onPaneClick={() => onSelect(null)}
           nodeTypes={nodeTypes}
           defaultViewport={{ x: 0, y: 0, zoom: 1 }}
@@ -744,14 +892,18 @@ function Canvas({
 function TerminalPanel({
   tab,
   setTab,
+  contextPlan,
+  nodeResults,
 }: {
-  tab: "live" | "free" | "logs";
-  setTab: (t: "live" | "free" | "logs") => void;
+  tab: "results" | "live" | "plan" | "free";
+  setTab: (t: "results" | "live" | "plan" | "free") => void;
+  contextPlan: ContextPlan | null;
+  nodeResults: Record<string, NodeRunResult>;
 }) {
   return (
     <aside className="panel terminal">
       <div className="tabs">
-        {(["live", "free", "logs"] as const).map((t) => (
+        {(["results", "live", "plan", "free"] as const).map((t) => (
           <button
             key={t}
             className={`tab ${tab === t ? "tab-active" : ""}`}
@@ -762,23 +914,257 @@ function TerminalPanel({
         ))}
       </div>
       <div className="terminal-body" style={{ padding: 0 }}>
+        {tab === "results" && <ResultsView results={nodeResults} />}
         <div style={{ display: tab === "live" ? "flex" : "none", flex: 1, minHeight: 0 }}>
           <LiveTerminal />
         </div>
+        {tab === "plan" && <PlanView plan={contextPlan} />}
         {tab === "free" && <div className="empty">Free CC session — v2</div>}
-        {tab === "logs" && <div className="empty">Pipeline logs — v2</div>}
       </div>
     </aside>
   );
 }
 
+function ResultsView({ results }: { results: Record<string, NodeRunResult> }) {
+  const list = Object.values(results).sort((a, b) => a.startedAt - b.startedAt);
+
+  if (list.length === 0) {
+    return (
+      <div className="results-view">
+        <div className="empty">
+          No results yet. Click ▶ Run to execute the graph.
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="results-view">
+      {list.map((r, i) => (
+        <ResultCard key={r.nodeId} result={r} index={i + 1} />
+      ))}
+    </div>
+  );
+}
+
+function ResultCard({ result, index }: { result: NodeRunResult; index: number }) {
+  const [expanded, setExpanded] = useState(true);
+  const duration =
+    result.endedAt && result.startedAt
+      ? `${((result.endedAt - result.startedAt) / 1000).toFixed(1)}s`
+      : "…";
+
+  return (
+    <div className={`result-card result-${result.status}`}>
+      <button
+        className="result-head"
+        onClick={() => setExpanded((v) => !v)}
+      >
+        <span className="result-num">{index}</span>
+        <span className="result-status-dot" />
+        <span className="result-title">{result.title}</span>
+        <span className="result-meta">
+          {MODEL_LABELS[result.model]} · {duration}
+        </span>
+        <span className="result-chevron">{expanded ? "▾" : "▸"}</span>
+      </button>
+      {expanded && (
+        <div className="result-body">
+          {result.status === "running" && (
+            <div className="empty">Running…</div>
+          )}
+          {result.status === "success" && (
+            <pre className="result-output">{result.output || "(no output)"}</pre>
+          )}
+          {result.status === "failed" && (
+            <pre className="result-output result-error">{result.error}</pre>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function PlanView({ plan }: { plan: ContextPlan | null }) {
+  if (!plan) {
+    return (
+      <div className="plan-view">
+        <div className="empty">
+          No context plan yet. The orchestrator runs at the start of every Run.
+        </div>
+      </div>
+    );
+  }
+  if (plan.edges.length === 0) {
+    return (
+      <div className="plan-view">
+        <div className="section-label" style={{ padding: "0 0 8px" }}>Context plan</div>
+        <div className="empty">{plan.raw}</div>
+      </div>
+    );
+  }
+  return (
+    <div className="plan-view">
+      <div className="section-label" style={{ padding: "0 0 8px" }}>
+        Context plan · {plan.edges.length} edge{plan.edges.length !== 1 ? "s" : ""}
+      </div>
+      {plan.edges.map((e, i) => (
+        <div key={i} className="plan-edge">
+          <div className="plan-edge-route">
+            <code>{e.from}</code> <span className="plan-edge-arrow">→</span>{" "}
+            <code>{e.to}</code>
+          </div>
+          <div
+            className={`plan-edge-instruction ${
+              e.instruction.toLowerCase() === "none" ? "plan-none" : ""
+            }`}
+          >
+            {e.instruction}
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 /* ─────────────── Inspector ─────────────── */
+function resolveModel(choice: ModelChoice | undefined): string {
+  if (!choice || choice === "auto") return "auto";
+  if (choice === "opus") return "claude-opus-4-6";
+  if (choice === "sonnet") return "claude-sonnet-4-6";
+  if (choice === "haiku") return "claude-haiku-4-5";
+  return "auto";
+}
+
 function buildPromptForNode(d: FlowNodeData): string {
   if (d.kind === "prompt") return d.prompt || "";
   if (d.kind === "skill") return d.skill ? `/${d.skill}` : "";
   if (d.kind === "subagent") return d.subagentPrompt || "";
   if (d.kind === "assessment") return d.question || "";
   return "";
+}
+
+function PreflightModal({
+  mode,
+  nodes,
+  edges,
+  orchestratorModel,
+  setOrchestratorModel,
+  overrides,
+  setOverrides,
+  onConfirm,
+  onClose,
+}: {
+  mode: "run" | "step";
+  nodes: Node<FlowNodeData>[];
+  edges: Edge[];
+  orchestratorModel: ModelChoice;
+  setOrchestratorModel: (m: ModelChoice) => void;
+  overrides: Record<string, ModelChoice>;
+  setOverrides: (o: Record<string, ModelChoice>) => void;
+  onConfirm: () => void;
+  onClose: () => void;
+}) {
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose();
+      if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) onConfirm();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose, onConfirm]);
+
+  const order = topoSort(nodes, edges);
+  const runnable = (order || []).filter(
+    (n) => buildPromptForNode(n.data).length > 0,
+  );
+
+  return (
+    <div
+      className="modal-backdrop"
+      onClick={(e) => {
+        if (e.target === e.currentTarget) onClose();
+      }}
+    >
+      <div className="modal" onClick={(e) => e.stopPropagation()}>
+        <div className="modal-head">
+          <div>
+            <div className="section-label" style={{ padding: 0, marginBottom: 4 }}>
+              Run preflight
+            </div>
+            <div className="modal-title">
+              {mode === "run" ? "Run the whole graph" : "Step through nodes"}
+            </div>
+          </div>
+          <div style={{ display: "flex", gap: 8 }}>
+            <button className="btn btn-primary btn-sm" onClick={onConfirm}>
+              <IconPlay /> Confirm
+            </button>
+            <button className="btn btn-icon" onClick={onClose} title="Close">
+              <IconX />
+            </button>
+          </div>
+        </div>
+
+        <div className="modal-body">
+          <Field label="Orchestrator model">
+            <select
+              className="input"
+              value={orchestratorModel}
+              onChange={(e) => setOrchestratorModel(e.target.value as ModelChoice)}
+            >
+              {(Object.keys(MODEL_LABELS) as ModelChoice[]).map((m) => (
+                <option key={m} value={m}>
+                  {MODEL_LABELS[m]}
+                  {m === "opus" ? " — Recommended" : ""}
+                </option>
+              ))}
+            </select>
+          </Field>
+
+          <div className="section-label" style={{ padding: "16px 0 8px" }}>
+            Nodes to run · {runnable.length}
+          </div>
+
+          {runnable.length === 0 && (
+            <div className="empty">
+              No runnable nodes found. Add a Prompt or Skill node and try again.
+            </div>
+          )}
+
+          <div className="preflight-list">
+            {runnable.map((n, i) => {
+              const effective = overrides[n.id] || n.data.model || "auto";
+              return (
+                <div className="preflight-row" key={n.id}>
+                  <div className="preflight-row-num">{i + 1}</div>
+                  <div className="preflight-row-name">
+                    {n.data.title || "Untitled"}
+                  </div>
+                  <select
+                    className="input preflight-row-model"
+                    value={effective}
+                    onChange={(e) =>
+                      setOverrides({
+                        ...overrides,
+                        [n.id]: e.target.value as ModelChoice,
+                      })
+                    }
+                  >
+                    {(Object.keys(MODEL_LABELS) as ModelChoice[]).map((m) => (
+                      <option key={m} value={m}>
+                        {MODEL_LABELS[m]}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
 }
 
 function NodeMenu({
@@ -908,13 +1294,30 @@ function EditModal({
         </div>
 
         <div className="modal-body">
-          <Field label="Title">
-            <input
-              className="input"
-              value={d.title}
-              onChange={(e) => onChange({ title: e.target.value })}
-            />
-          </Field>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 200px", gap: 12 }}>
+            <Field label="Title">
+              <input
+                className="input"
+                value={d.title}
+                onChange={(e) => onChange({ title: e.target.value })}
+              />
+            </Field>
+            <Field label="Model">
+              <select
+                className="input"
+                value={d.model || "auto"}
+                onChange={(e) =>
+                  onChange({ model: e.target.value as ModelChoice })
+                }
+              >
+                {(Object.keys(MODEL_LABELS) as ModelChoice[]).map((m) => (
+                  <option key={m} value={m}>
+                    {MODEL_LABELS[m]}
+                  </option>
+                ))}
+              </select>
+            </Field>
+          </div>
 
           {d.kind === "prompt" && (
             <Field label="Prompt">
