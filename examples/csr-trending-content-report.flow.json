@@ -81,7 +81,8 @@
         "kind": "output",
         "title": "Compile weekly trending report",
         "outputFormat": "word",
-        "outputPath": "~/Desktop/trending-content-report.docx"
+        "outputPath": "~/Desktop/trending-content-report.docx",
+        "model": "haiku"
       }
     }
   ],

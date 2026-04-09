@@ -70,6 +70,8 @@ interface RunOutput {
   format: OutputFormat;
   path: string;
   isUrl?: boolean;
+  status: "success" | "failed";
+  message?: string; // status detail (e.g. "Rendered: 3 frames" or error text)
   createdAt: number;
 }
 
@@ -451,21 +453,51 @@ function FlowbenchApp() {
             const collected: RunOutput[] = [];
             const baseTitle = node.data.title || "Untitled output";
             const baseFormat = node.data.outputFormat || "markdown";
+            const out = result.output || "";
 
-            // 1) The configured local path (if any).
+            // Look for explicit Flowbench status markers Claude is asked to print.
+            const figmaErrorMatch = out.match(/^Figma error:\s*(.+)$/m);
+            const figmaRenderedMatch = out.match(/^Rendered to Figma:\s*(.+)$/m);
+
+            // 1) The configured local path / status entry.
             if (node.data.outputPath) {
-              collected.push({
-                nodeId: node.id,
-                title: baseTitle,
-                format: baseFormat,
-                path: node.data.outputPath,
-                isUrl: false,
-                createdAt: Date.now(),
-              });
+              if (figmaErrorMatch) {
+                collected.push({
+                  nodeId: node.id,
+                  title: baseTitle,
+                  format: baseFormat,
+                  path: figmaErrorMatch[1].trim(),
+                  isUrl: false,
+                  status: "failed",
+                  message: figmaErrorMatch[1].trim(),
+                  createdAt: Date.now(),
+                });
+              } else if (figmaRenderedMatch) {
+                collected.push({
+                  nodeId: node.id,
+                  title: baseTitle,
+                  format: baseFormat,
+                  path: figmaRenderedMatch[1].trim(),
+                  isUrl: false,
+                  status: "success",
+                  message: `Rendered: ${figmaRenderedMatch[1].trim()}`,
+                  createdAt: Date.now(),
+                });
+              } else {
+                collected.push({
+                  nodeId: node.id,
+                  title: baseTitle,
+                  format: baseFormat,
+                  path: node.data.outputPath,
+                  isUrl: false,
+                  status: "success",
+                  createdAt: Date.now(),
+                });
+              }
             }
 
             // 2) Any URLs Claude printed in its output (Figma file URLs, etc).
-            const urls = extractUrls(result.output || "");
+            const urls = extractUrls(out);
             urls.forEach((url, i) => {
               collected.push({
                 nodeId: `${node.id}-url-${i}`,
@@ -473,6 +505,7 @@ function FlowbenchApp() {
                 format: url.includes("figma.com") ? "figma" : baseFormat,
                 path: url,
                 isUrl: true,
+                status: "success",
                 createdAt: Date.now() + i,
               });
             });
@@ -500,6 +533,26 @@ function FlowbenchApp() {
           }));
           nodeOutcome[node.id] = "failed";
           failed++;
+
+          // Surface failed Output nodes in the Outputs tab so they're not invisible.
+          if (node.data.kind === "output") {
+            const failedEntry: RunOutput = {
+              nodeId: node.id,
+              title: node.data.title || "Output failed",
+              format: node.data.outputFormat || "markdown",
+              path: node.data.outputPath || "",
+              isUrl: false,
+              status: "failed",
+              message: String(err),
+              createdAt: Date.now(),
+            };
+            setRunOutputs((prev) => [
+              failedEntry,
+              ...prev.filter(
+                (p) => p.nodeId !== node.id && !p.nodeId.startsWith(`${node.id}-url-`),
+              ),
+            ]);
+          }
         }
       };
 
@@ -1363,21 +1416,31 @@ function OutputsView({ outputs }: { outputs: RunOutput[] }) {
   return (
     <div className="results-view">
       {outputs.map((o) => (
-        <div className="output-card" key={`${o.nodeId}-${o.createdAt}`}>
+        <div
+          className={`output-card output-${o.status}`}
+          key={`${o.nodeId}-${o.createdAt}`}
+        >
           <div className="output-icon">
             <OutputFormatIcon format={o.format} />
           </div>
           <div className="output-body">
-            <div className="output-title">{o.title}</div>
-            <div className="output-path" title={o.path}>{o.path}</div>
+            <div className="output-title">
+              {o.status === "failed" && <span className="output-fail-tag">FAIL</span>}
+              {o.title}
+            </div>
+            <div className="output-path" title={o.path}>
+              {o.message || o.path}
+            </div>
           </div>
-          <button
-            className="btn btn-sm"
-            onClick={() => handleOpen(o)}
-            title={o.isUrl ? "Open URL in browser" : "Open file or folder"}
-          >
-            {o.isUrl ? "Open ↗" : "Open"}
-          </button>
+          {o.status === "success" && o.path && (
+            <button
+              className="btn btn-sm"
+              onClick={() => handleOpen(o)}
+              title={o.isUrl ? "Open URL in browser" : "Open file or folder"}
+            >
+              {o.isUrl ? "Open ↗" : "Open"}
+            </button>
+          )}
         </div>
       ))}
     </div>
@@ -1570,7 +1633,7 @@ function outputInstructionFor(fmt: OutputFormat, path: string): string {
     return `${common}\n\nUse openpyxl (Python) to generate a real .xlsx. Run a python script via the Bash tool that imports openpyxl, builds a workbook with one or more sheets, populates rows from the upstream structured content, and saves it to the path. Use bold headers and freeze the top row. If openpyxl isn't installed, install it with pip first.`;
   }
   if (fmt === "figma") {
-    return `${common}\n\nUse the user's figma-cli skill (located at ~/figma-cli/) to render this design directly in Figma Desktop. Steps:\n\n1. Read ~/figma-cli/CLAUDE.md to load the latest command syntax.\n2. Connect to Figma Desktop: \`node ~/figma-cli/src/index.js connect\`\n3. Render the upstream content as actual Figma frames using the render or render-batch command. For LinkedIn ads, create frames at the standard sizes: 1200x627 (sponsored content single image), 1080x1080 (square), and 1080x1350 (vertical). Each frame must contain the actual headline, body copy, CTA button, and visual layout described in the upstream context.\n4. If the upstream content is not for LinkedIn ads, infer the appropriate frame size from context.\n\nCRITICAL: At the end of your response, on its own line, print the Figma file URL in the form:\n\nFigma file: https://www.figma.com/file/<key>/<name>\n\nThis URL is parsed by Flowbench and shown in the Outputs tab. If you can't get a real URL from figma-cli, print the canvas info or page info that lets the user find what you created.`;
+    return `${common}\n\nUse the user's figma-cli skill at ~/figma-cli/ to render this design directly into the user's currently-open Figma Desktop file.\n\nCRITICAL setup — figma-cli MUST be run from its own directory or its module imports break:\n\n\`\`\`bash\ncd ~/figma-cli\nnode src/index.js connect    # establishes session with Figma Desktop\n\`\`\`\n\nIf the connect step prints "Already connected" or succeeds with no error, proceed. If it errors with a permission or daemon issue, surface the error verbatim and stop.\n\nThen render the upstream design content as real Figma frames. For LinkedIn ads, create three frames at standard sizes side-by-side:\n- 1200x627 (sponsored content single image)\n- 1080x1080 (square)\n- 1080x1350 (vertical)\n\nEach frame must contain the actual headline, body copy, CTA button, and visual layout described in the upstream context. Use the JSX syntax documented in ~/figma-cli/CLAUDE.md (read it first if you need a refresher).\n\nExample render command (still inside ~/figma-cli):\n\`\`\`bash\nnode src/index.js render '<Frame name="LinkedIn Sponsored 1200x627" w={1200} h={627} bg="#FFFFFF" flex="col" p={64} gap={24}>...</Frame>'\n\`\`\`\n\nIf the upstream content is not for LinkedIn ads, infer the appropriate frame size from context.\n\nCRITICAL: At the end of your response, on its own line, print a confirmation in this exact format so Flowbench can parse it:\n\nRendered to Figma: <comma-separated list of frame names you created>\n\nIf any step failed, instead print:\n\nFigma error: <one-line description of what failed>\n\nDo not skip these final lines — Flowbench reads them to populate the Outputs tab.`;
   }
   // json
   return `${common}\n\nWrite the content as a single well-formed JSON document. Use the Write tool.`;
