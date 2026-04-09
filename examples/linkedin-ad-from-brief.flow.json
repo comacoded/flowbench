@@ -89,7 +89,7 @@
     },
     {
       "id": "n8",
-      "type": "output",
+      "type": "outputnode",
       "position": { "x": 1720, "y": 120 },
       "data": {
         "kind": "output",

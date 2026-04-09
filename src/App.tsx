@@ -13,6 +13,7 @@ import {
   useNodesState,
   useEdgesState,
   useReactFlow,
+  reconnectEdge,
 } from "reactflow";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { nodeTypes } from "./nodes";
@@ -29,6 +30,7 @@ import { saveFlow, openFlow } from "./storage";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import { invoke } from "@tauri-apps/api/core";
 import { NodeActionsContext } from "./nodeActions";
+import { OutputFormatIcon } from "./formatIcons";
 import { Panel, PanelGroup, PanelResizeHandle } from "react-resizable-panels";
 import { topoSort, waitForResume } from "./runLoop";
 import {
@@ -149,6 +151,31 @@ function FlowbenchApp() {
 
   const onConnect = useCallback(
     (c: Connection) => setEdges((eds) => addEdge(c, eds)),
+    [setEdges],
+  );
+
+  const reconnectDoneRef = useRef(true);
+
+  const onReconnectStart = useCallback(() => {
+    reconnectDoneRef.current = false;
+  }, []);
+
+  const onReconnect = useCallback(
+    (oldEdge: Edge, newConnection: Connection) => {
+      reconnectDoneRef.current = true;
+      setEdges((eds) => reconnectEdge(oldEdge, newConnection, eds));
+    },
+    [setEdges],
+  );
+
+  const onReconnectEnd = useCallback(
+    (_: any, edge: Edge) => {
+      // If onReconnect didn't fire, the user dropped the endpoint on nothing — delete it.
+      if (!reconnectDoneRef.current) {
+        setEdges((eds) => eds.filter((e) => e.id !== edge.id));
+      }
+      reconnectDoneRef.current = true;
+    },
     [setEdges],
   );
 
@@ -686,7 +713,7 @@ function FlowbenchApp() {
             data.title = OUTPUT_FORMAT_LABELS[format];
             const newNode: Node<FlowNodeData> = {
               id,
-              type: "output",
+              type: "outputnode",
               position: { x: 100 + offset, y: 100 + offset },
               data,
             };
@@ -702,6 +729,9 @@ function FlowbenchApp() {
           onNodesChange={onNodesChange}
           onEdgesChange={onEdgesChange}
           onConnect={onConnect}
+          onReconnectStart={onReconnectStart}
+          onReconnect={onReconnect}
+          onReconnectEnd={onReconnectEnd}
           onSelect={() => {}}
           onNodeDoubleClick={(n) => setEditingId(n.id)}
           onEdgeClick={(edge) => {
@@ -722,9 +752,12 @@ function FlowbenchApp() {
               data.outputFormat = outputFormat as OutputFormat;
               data.title = OUTPUT_FORMAT_LABELS[outputFormat as OutputFormat];
             }
+            // Map our kind to React Flow's node type — "output" collides with a
+            // built-in RF type, so we use "outputnode" for the registration.
+            const rfType = kind === "output" ? "outputnode" : kind;
             const newNode: Node<FlowNodeData> = {
               id,
-              type: kind,
+              type: rfType,
               position,
               data,
             };
@@ -1129,58 +1162,6 @@ function Library({
   );
 }
 
-function OutputFormatIcon({ format }: { format: OutputFormat }) {
-  if (format === "word") {
-    return (
-      <svg width="18" height="18" viewBox="0 0 18 18">
-        <rect x="1" y="1" width="16" height="16" rx="3" fill="#2B579A" />
-        <text x="9" y="13" fontSize="10" fontFamily="Inter, sans-serif" fontWeight="700" fill="#FFF" textAnchor="middle">W</text>
-      </svg>
-    );
-  }
-  if (format === "powerpoint") {
-    return (
-      <svg width="18" height="18" viewBox="0 0 18 18">
-        <rect x="1" y="1" width="16" height="16" rx="3" fill="#D24726" />
-        <text x="9" y="13" fontSize="10" fontFamily="Inter, sans-serif" fontWeight="700" fill="#FFF" textAnchor="middle">P</text>
-      </svg>
-    );
-  }
-  if (format === "excel") {
-    return (
-      <svg width="18" height="18" viewBox="0 0 18 18">
-        <rect x="1" y="1" width="16" height="16" rx="3" fill="#107C41" />
-        <text x="9" y="13" fontSize="10" fontFamily="Inter, sans-serif" fontWeight="700" fill="#FFF" textAnchor="middle">X</text>
-      </svg>
-    );
-  }
-  if (format === "figma") {
-    return (
-      <svg width="18" height="18" viewBox="0 0 18 18">
-        <rect x="3" y="1" width="5" height="5" rx="2.5" fill="#F24E1E" />
-        <rect x="3" y="6" width="5" height="5" fill="#A259FF" />
-        <rect x="3" y="11" width="5" height="5" rx="2.5" fill="#0ACF83" />
-        <rect x="8" y="6" width="5" height="5" rx="2.5" fill="#FF7262" />
-        <rect x="8" y="1" width="5" height="5" rx="2.5" fill="#1ABCFE" />
-      </svg>
-    );
-  }
-  if (format === "json") {
-    return (
-      <svg width="18" height="18" viewBox="0 0 18 18">
-        <rect x="1" y="1" width="16" height="16" rx="3" fill="#1A1A1A" />
-        <text x="9" y="13" fontSize="9" fontFamily="JetBrains Mono, monospace" fontWeight="600" fill="#FFF" textAnchor="middle">{"{ }"}</text>
-      </svg>
-    );
-  }
-  // markdown
-  return (
-    <svg width="18" height="18" viewBox="0 0 18 18">
-      <rect x="1" y="1" width="16" height="16" rx="3" fill="#FFF" stroke="#1A1A1A" strokeWidth="1.2" />
-      <text x="9" y="13" fontSize="9" fontFamily="JetBrains Mono, monospace" fontWeight="700" fill="#1A1A1A" textAnchor="middle">M↓</text>
-    </svg>
-  );
-}
 
 /* ─────────────── Canvas ─────────────── */
 function Canvas({
@@ -1189,6 +1170,9 @@ function Canvas({
   onNodesChange,
   onEdgesChange,
   onConnect,
+  onReconnectStart,
+  onReconnect,
+  onReconnectEnd,
   onSelect,
   onNodeDoubleClick,
   onEdgeClick,
@@ -1199,6 +1183,9 @@ function Canvas({
   onNodesChange: any;
   onEdgesChange: any;
   onConnect: (c: Connection) => void;
+  onReconnectStart: () => void;
+  onReconnect: (oldEdge: Edge, newConnection: Connection) => void;
+  onReconnectEnd: (e: any, edge: Edge) => void;
   onSelect: (n: Node<FlowNodeData> | null) => void;
   onNodeDoubleClick: (n: Node<FlowNodeData>) => void;
   onEdgeClick: (e: Edge) => void;
@@ -1239,6 +1226,10 @@ function Canvas({
           onNodesChange={onNodesChange}
           onEdgesChange={onEdgesChange}
           onConnect={onConnect}
+          onReconnectStart={onReconnectStart}
+          onReconnect={onReconnect}
+          onReconnectEnd={onReconnectEnd}
+          edgesUpdatable={true}
           onNodeClick={(_, node) => onSelect(node)}
           onNodeDoubleClick={(_, node) => onNodeDoubleClick(node)}
           onEdgeClick={(_, edge) => onEdgeClick(edge)}

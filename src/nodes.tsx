@@ -1,6 +1,7 @@
 import { Handle, Position, NodeProps } from "reactflow";
 import { FlowNodeData, NodeKind } from "./types";
 import { useNodeActions } from "./nodeActions";
+import { OutputFormatIcon } from "./formatIcons";
 
 const KIND_COLORS: Record<string, string> = {
   prompt: "#1A1A1A",
@@ -118,7 +119,11 @@ export function FlowNode({ id, data, selected }: NodeProps<FlowNodeData>) {
       <Handle id="s-bottom" type="source" position={Position.Bottom} className="flow-handle" />
       <div className="flow-node-head">
         <span className="flow-node-icon" style={{ color: accent }}>
-          <NodeKindIcon kind={data.kind} />
+          {data.kind === "output" && data.outputFormat ? (
+            <OutputFormatIcon format={data.outputFormat} />
+          ) : (
+            <NodeKindIcon kind={data.kind} />
+          )}
         </span>
         <div className="flow-node-title">{data.title || "Untitled"}</div>
         <button
@@ -167,6 +172,8 @@ export const nodeTypes = {
   skill: FlowNode,
   subagent: FlowNode,
   assessment: FlowNode,
-  output: FlowNode,
+  // NOTE: react-flow has a built-in "output" node type that wraps custom
+  // components in its own container — using a different key to avoid the collision.
+  outputnode: FlowNode,
   repository: FlowNode,
 };

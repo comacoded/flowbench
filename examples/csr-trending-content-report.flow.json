@@ -75,7 +75,7 @@
     },
     {
       "id": "n7",
-      "type": "output",
+      "type": "outputnode",
       "position": { "x": 1080, "y": 280 },
       "data": {
         "kind": "output",
