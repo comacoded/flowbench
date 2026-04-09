@@ -628,6 +628,20 @@ function FlowbenchApp() {
             };
             setNodes((nds) => [...nds, newNode]);
           }}
+          onAddOutput={(format) => {
+            const id = nextId();
+            const offset = nodes.length * 24;
+            const data = defaultDataFor("output");
+            data.outputFormat = format;
+            data.title = OUTPUT_FORMAT_LABELS[format];
+            const newNode: Node<FlowNodeData> = {
+              id,
+              type: "output",
+              position: { x: 100 + offset, y: 100 + offset },
+              data,
+            };
+            setNodes((nds) => [...nds, newNode]);
+          }}
         />
         </Panel>
         <PanelResizeHandle className="resize-handle" />
@@ -650,10 +664,14 @@ function FlowbenchApp() {
               ),
             );
           }}
-          onDrop={(kind, position, skill) => {
+          onDrop={(kind, position, skill, outputFormat) => {
             const id = nextId();
             const data = defaultDataFor(kind);
             if (kind === "skill" && skill) data.skill = skill;
+            if (kind === "output" && outputFormat) {
+              data.outputFormat = outputFormat as OutputFormat;
+              data.title = OUTPUT_FORMAT_LABELS[outputFormat as OutputFormat];
+            }
             const newNode: Node<FlowNodeData> = {
               id,
               type: kind,
@@ -896,48 +914,116 @@ function Library({
   skills,
   onAdd,
   onAddSkill,
+  onAddOutput,
 }: {
   skills: SkillEntry[];
   onAdd: (kind: NodeKind) => void;
   onAddSkill: (skillName: string) => void;
+  onAddOutput: (format: OutputFormat) => void;
 }) {
+  const [nodeTypesOpen, setNodeTypesOpen] = useState(true);
+  const [outputsOpen, setOutputsOpen] = useState(false);
   const [skillsOpen, setSkillsOpen] = useState(false);
 
-  const onDragStart = (e: React.DragEvent, kind: NodeKind, skill?: string) => {
+  const onDragStart = (
+    e: React.DragEvent,
+    kind: NodeKind,
+    extras?: { skill?: string; outputFormat?: OutputFormat },
+  ) => {
     e.dataTransfer.setData("application/flowbench-node", kind);
-    if (skill) e.dataTransfer.setData("application/flowbench-skill", skill);
+    if (extras?.skill) e.dataTransfer.setData("application/flowbench-skill", extras.skill);
+    if (extras?.outputFormat)
+      e.dataTransfer.setData("application/flowbench-output", extras.outputFormat);
     e.dataTransfer.effectAllowed = "move";
   };
 
-  const kinds: NodeKind[] = ["prompt", "skill", "subagent", "assessment", "output"];
+  const kinds: NodeKind[] = ["prompt", "skill", "subagent", "assessment"];
+  const outputFormats: OutputFormat[] = [
+    "markdown",
+    "word",
+    "powerpoint",
+    "figma",
+    "json",
+  ];
 
   return (
     <aside className="panel library">
-      <div className="section-label">Node types</div>
-      {kinds.map((k) => (
-        <div
-          key={k}
-          className="lib-item"
-          draggable
-          onDragStart={(e) => onDragStart(e, k)}
-        >
-          <span className="lib-grip" title="Drag to canvas">⋮⋮</span>
-          <div className="lib-item-body">
-            <div className="lib-item-name">{NODE_LABELS[k]}</div>
-            <div className="lib-item-hint">{NODE_HINTS[k]}</div>
-          </div>
-          <button
-            className="lib-add"
-            onClick={(e) => {
-              e.stopPropagation();
-              onAdd(k);
-            }}
-            title={`Add ${NODE_LABELS[k]} node`}
-          >
-            +
-          </button>
+      <button
+        className="accordion-header"
+        onClick={() => setNodeTypesOpen((v) => !v)}
+      >
+        <span className="accordion-chevron">{nodeTypesOpen ? "▾" : "▸"}</span>
+        <span>Node types</span>
+        <span className="count">{kinds.length}</span>
+      </button>
+      {nodeTypesOpen && (
+        <div className="accordion-body">
+          {kinds.map((k) => (
+            <div
+              key={k}
+              className="lib-item"
+              draggable
+              onDragStart={(e) => onDragStart(e, k)}
+            >
+              <span className="lib-grip" title="Drag to canvas">⋮⋮</span>
+              <div className="lib-item-body">
+                <div className="lib-item-name">{NODE_LABELS[k]}</div>
+                <div className="lib-item-hint">{NODE_HINTS[k]}</div>
+              </div>
+              <button
+                className="lib-add"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onAdd(k);
+                }}
+                title={`Add ${NODE_LABELS[k]} node`}
+              >
+                +
+              </button>
+            </div>
+          ))}
         </div>
-      ))}
+      )}
+
+      <button
+        className="accordion-header"
+        onClick={() => setOutputsOpen((v) => !v)}
+      >
+        <span className="accordion-chevron">{outputsOpen ? "▾" : "▸"}</span>
+        <span>Outputs</span>
+        <span className="count">{outputFormats.length}</span>
+      </button>
+      {outputsOpen && (
+        <div className="accordion-body">
+          {outputFormats.map((f) => (
+            <div
+              key={f}
+              className="lib-item"
+              draggable
+              onDragStart={(e) => onDragStart(e, "output", { outputFormat: f })}
+              title={`Save as ${OUTPUT_FORMAT_LABELS[f]}`}
+            >
+              <span className="lib-grip" title="Drag to canvas">⋮⋮</span>
+              <span className="lib-item-format-icon">
+                <OutputFormatIcon format={f} />
+              </span>
+              <div className="lib-item-body">
+                <div className="lib-item-name">{OUTPUT_FORMAT_LABELS[f]}</div>
+              </div>
+              <button
+                className="lib-add"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onAddOutput(f);
+                }}
+                title={`Add ${OUTPUT_FORMAT_LABELS[f]} output`}
+              >
+                +
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
 
       <button
         className="accordion-header"
@@ -947,7 +1033,6 @@ function Library({
         <span>Skills</span>
         <span className="count">{skills.length}</span>
       </button>
-
       {skillsOpen && (
         <div className="accordion-body">
           {skills.length === 0 && (
@@ -958,7 +1043,7 @@ function Library({
               key={`${s.kind}-${s.name}`}
               className="lib-item lib-item-compact"
               draggable
-              onDragStart={(e) => onDragStart(e, "skill", s.name)}
+              onDragStart={(e) => onDragStart(e, "skill", { skill: s.name })}
               title={s.description}
             >
               <span className="lib-grip" title="Drag to canvas">⋮⋮</span>
@@ -987,6 +1072,51 @@ function Library({
   );
 }
 
+function OutputFormatIcon({ format }: { format: OutputFormat }) {
+  if (format === "word") {
+    return (
+      <svg width="18" height="18" viewBox="0 0 18 18">
+        <rect x="1" y="1" width="16" height="16" rx="3" fill="#2B579A" />
+        <text x="9" y="13" fontSize="10" fontFamily="Inter, sans-serif" fontWeight="700" fill="#FFF" textAnchor="middle">W</text>
+      </svg>
+    );
+  }
+  if (format === "powerpoint") {
+    return (
+      <svg width="18" height="18" viewBox="0 0 18 18">
+        <rect x="1" y="1" width="16" height="16" rx="3" fill="#D24726" />
+        <text x="9" y="13" fontSize="10" fontFamily="Inter, sans-serif" fontWeight="700" fill="#FFF" textAnchor="middle">P</text>
+      </svg>
+    );
+  }
+  if (format === "figma") {
+    return (
+      <svg width="18" height="18" viewBox="0 0 18 18">
+        <rect x="3" y="1" width="5" height="5" rx="2.5" fill="#F24E1E" />
+        <rect x="3" y="6" width="5" height="5" fill="#A259FF" />
+        <rect x="3" y="11" width="5" height="5" rx="2.5" fill="#0ACF83" />
+        <rect x="8" y="6" width="5" height="5" rx="2.5" fill="#FF7262" />
+        <rect x="8" y="1" width="5" height="5" rx="2.5" fill="#1ABCFE" />
+      </svg>
+    );
+  }
+  if (format === "json") {
+    return (
+      <svg width="18" height="18" viewBox="0 0 18 18">
+        <rect x="1" y="1" width="16" height="16" rx="3" fill="#1A1A1A" />
+        <text x="9" y="13" fontSize="9" fontFamily="JetBrains Mono, monospace" fontWeight="600" fill="#FFF" textAnchor="middle">{"{ }"}</text>
+      </svg>
+    );
+  }
+  // markdown
+  return (
+    <svg width="18" height="18" viewBox="0 0 18 18">
+      <rect x="1" y="1" width="16" height="16" rx="3" fill="#FFF" stroke="#1A1A1A" strokeWidth="1.2" />
+      <text x="9" y="13" fontSize="9" fontFamily="JetBrains Mono, monospace" fontWeight="700" fill="#1A1A1A" textAnchor="middle">M↓</text>
+    </svg>
+  );
+}
+
 /* ─────────────── Canvas ─────────────── */
 function Canvas({
   nodes,
@@ -1011,6 +1141,7 @@ function Canvas({
     kind: NodeKind,
     position: { x: number; y: number },
     skill?: string,
+    outputFormat?: string,
   ) => void;
 }) {
   const wrapperRef = useRef<HTMLDivElement>(null);
@@ -1021,8 +1152,9 @@ function Canvas({
     const kind = e.dataTransfer.getData("application/flowbench-node") as NodeKind;
     if (!kind) return;
     const skill = e.dataTransfer.getData("application/flowbench-skill") || undefined;
+    const outputFormat = e.dataTransfer.getData("application/flowbench-output") || undefined;
     const position = screenToFlowPosition({ x: e.clientX, y: e.clientY });
-    onDrop(kind, position, skill);
+    onDrop(kind, position, skill, outputFormat);
   };
 
   return (

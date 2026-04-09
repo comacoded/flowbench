@@ -812,6 +812,13 @@ button {
 
 /* ─────────────── Library drag handle ─────────────── */
 
+.lib-item-format-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
 .lib-grip {
   width: 12px;
   display: flex;
