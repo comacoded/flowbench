@@ -1,0 +1,158 @@
+{
+  "version": 1,
+  "name": "LinkedIn Ad from Brief",
+  "nodes": [
+    {
+      "id": "n1",
+      "type": "repository",
+      "position": { "x": 60, "y": 80 },
+      "data": {
+        "kind": "repository",
+        "title": "Brand guidelines",
+        "repoPath": "/Users/nickcoma/Documents/Flowbench/examples/brand-guidelines",
+        "repoDescription": "IBM voice, tone, visual tokens, and LinkedIn ad layout constraints"
+      }
+    },
+    {
+      "id": "n2",
+      "type": "prompt",
+      "position": { "x": 60, "y": 320 },
+      "data": {
+        "kind": "prompt",
+        "title": "Read the brief",
+        "prompt": "Read the attached LinkedIn ad brief. Extract: (1) audience, (2) the single feeling we want them to leave with, (3) the strongest proof point to lead with, (4) all hard constraints, and (5) what NOT to do. Return as a clean markdown summary.",
+        "model": "auto",
+        "attachments": [
+          "/Users/nickcoma/Documents/Flowbench/examples/linkedin-ad-brief.md"
+        ]
+      }
+    },
+    {
+      "id": "n3",
+      "type": "prompt",
+      "position": { "x": 380, "y": 200 },
+      "data": {
+        "kind": "prompt",
+        "title": "Generate 3 ad concepts",
+        "prompt": "Using the brand voice and visual constraints from the upstream brand-guidelines folder AND the brief summary above, generate 3 distinct ad concepts. Each concept should have: (a) a one-line creative idea, (b) the angle / proof point it leans on, (c) which voice pillar it expresses. Make the concepts genuinely different — not three flavors of the same idea. Number them 1, 2, 3.",
+        "model": "auto",
+        "attachments": []
+      }
+    },
+    {
+      "id": "n4",
+      "type": "prompt",
+      "position": { "x": 700, "y": 80 },
+      "data": {
+        "kind": "prompt",
+        "title": "Draft headline + body for each concept",
+        "prompt": "For each of the 3 concepts above, draft a complete LinkedIn ad: (1) headline ≤220 characters, (2) body copy ≤600 characters, (3) CTA button text (must contain the word 'demo'), (4) accent color hex from the brand tokens, (5) layout notes — where the headline sits, where the CTA sits, where the logo sits, what visual element fills the rest. Apply the brand voice rules strictly: no banned words like 'transformative', no adjective stacking, no compliance guarantees. Be ready for downstream rendering — explicit copy and layout, no vague directions.",
+        "model": "auto",
+        "attachments": []
+      }
+    },
+    {
+      "id": "n5",
+      "type": "assessment",
+      "position": { "x": 1040, "y": 80 },
+      "data": {
+        "kind": "assessment",
+        "title": "Concept strong enough to ship?",
+        "question": "Review the 3 drafted ads above. Does at least one of them clearly satisfy all the brief's hard constraints (character limits, mandatory phrases, no banned words, audience match, CTA includes 'demo'), AND express the brand voice without slipping into vague aspirational language? Answer with one word: yes or no, then a 1-sentence rationale citing the strongest concept.",
+        "branches": ["yes", "no"],
+        "model": "auto"
+      }
+    },
+    {
+      "id": "n6",
+      "type": "prompt",
+      "position": { "x": 1380, "y": 0 },
+      "data": {
+        "kind": "prompt",
+        "title": "Pick winner + write render-ready spec",
+        "prompt": "Pick the strongest of the 3 concepts. Output a render-ready spec for the downstream Figma node: campaign name, audience, headline (exact text), body copy (exact text), CTA button text, accent color hex, background color hex, logo position, headline position, body position, CTA position. Use a clean structured format that the Figma renderer can use directly to lay out 1200x627, 1080x1080, and 1080x1350 frames. Include a 1-sentence 'why this concept won' note at the end.",
+        "model": "auto",
+        "attachments": []
+      }
+    },
+    {
+      "id": "n7",
+      "type": "prompt",
+      "position": { "x": 1380, "y": 240 },
+      "data": {
+        "kind": "prompt",
+        "title": "Diagnose + revise direction",
+        "prompt": "None of the 3 concepts cleared the bar. For each concept, identify the specific failure (which constraint, which voice rule). Then propose a revised creative direction in 3-5 bullets that the team should try next round. Be concrete about what to change.",
+        "model": "auto",
+        "attachments": []
+      }
+    },
+    {
+      "id": "n8",
+      "type": "output",
+      "position": { "x": 1720, "y": 120 },
+      "data": {
+        "kind": "output",
+        "title": "Render LinkedIn ad in Figma",
+        "outputFormat": "figma",
+        "outputPath": "~/Desktop/linkedin-ad-figma"
+      }
+    }
+  ],
+  "edges": [
+    {
+      "id": "e-n1-n3",
+      "source": "n1",
+      "target": "n3",
+      "data": { "kind": "sequential" }
+    },
+    {
+      "id": "e-n2-n3",
+      "source": "n2",
+      "target": "n3",
+      "data": { "kind": "sequential" }
+    },
+    {
+      "id": "e-n1-n4",
+      "source": "n1",
+      "target": "n4",
+      "data": { "kind": "sequential" }
+    },
+    {
+      "id": "e-n3-n4",
+      "source": "n3",
+      "target": "n4",
+      "data": { "kind": "sequential" }
+    },
+    {
+      "id": "e-n4-n5",
+      "source": "n4",
+      "target": "n5",
+      "data": { "kind": "sequential" }
+    },
+    {
+      "id": "e-n5-n6",
+      "source": "n5",
+      "target": "n6",
+      "data": { "kind": "conditional", "branch": "yes" }
+    },
+    {
+      "id": "e-n5-n7",
+      "source": "n5",
+      "target": "n7",
+      "data": { "kind": "conditional", "branch": "no" }
+    },
+    {
+      "id": "e-n6-n8",
+      "source": "n6",
+      "target": "n8",
+      "data": { "kind": "sequential" }
+    },
+    {
+      "id": "e-n7-n8",
+      "source": "n7",
+      "target": "n8",
+      "data": { "kind": "sequential" }
+    }
+  ]
+}

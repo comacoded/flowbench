@@ -28,7 +28,6 @@ import {
 import { saveFlow, openFlow } from "./storage";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import { invoke } from "@tauri-apps/api/core";
-import { LiveTerminal } from "./Terminal";
 import { NodeActionsContext } from "./nodeActions";
 import { Panel, PanelGroup, PanelResizeHandle } from "react-resizable-panels";
 import { topoSort, waitForResume } from "./runLoop";
@@ -63,6 +62,14 @@ interface ClaudeStatus {
   message: string;
 }
 
+interface RunOutput {
+  nodeId: string;
+  title: string;
+  format: OutputFormat;
+  path: string;
+  createdAt: number;
+}
+
 interface NodeRunResult {
   nodeId: string;
   title: string;
@@ -86,9 +93,10 @@ function App() {
 function FlowbenchApp() {
   const [nodes, setNodes, onNodesChange] = useNodesState<FlowNodeData>([]);
   const [edges, setEdges, onEdgesChange] = useEdgesState([]);
-  const [tab, setTab] = useState<"results" | "live" | "plan" | "free">("results");
+  const [tab, setTab] = useState<"results" | "plan" | "outputs">("results");
   const [contextPlan, setContextPlan] = useState<ContextPlan | null>(null);
   const [nodeResults, setNodeResults] = useState<Record<string, NodeRunResult>>({});
+  const [runOutputs, setRunOutputs] = useState<RunOutput[]>([]);
   const [flowName, setFlowName] = useState("untitled");
   const [skills, setSkills] = useState<SkillEntry[]>([]);
   const [claudeStatus, setClaudeStatus] = useState<ClaudeStatus | null>(null);
@@ -410,6 +418,20 @@ function FlowbenchApp() {
             const found = branches.find((b) => lower.includes(b.toLowerCase()));
             if (found) branchTaken[node.id] = found;
           }
+
+          if (node.data.kind === "output" && node.data.outputPath) {
+            const newOutput: RunOutput = {
+              nodeId: node.id,
+              title: node.data.title || "Untitled output",
+              format: node.data.outputFormat || "markdown",
+              path: node.data.outputPath,
+              createdAt: Date.now(),
+            };
+            setRunOutputs((prev) => [
+              newOutput,
+              ...prev.filter((p) => p.nodeId !== node.id),
+            ]);
+          }
         } catch (err) {
           console.error(`node ${node.id} failed`, err);
           setNodeStatus(node.id, "failed");
@@ -722,6 +744,7 @@ function FlowbenchApp() {
             setTab={setTab}
             contextPlan={contextPlan}
             nodeResults={nodeResults}
+            outputs={runOutputs}
           />
         </Panel>
       </PanelGroup>
@@ -1123,6 +1146,14 @@ function OutputFormatIcon({ format }: { format: OutputFormat }) {
       </svg>
     );
   }
+  if (format === "excel") {
+    return (
+      <svg width="18" height="18" viewBox="0 0 18 18">
+        <rect x="1" y="1" width="16" height="16" rx="3" fill="#107C41" />
+        <text x="9" y="13" fontSize="10" fontFamily="Inter, sans-serif" fontWeight="700" fill="#FFF" textAnchor="middle">X</text>
+      </svg>
+    );
+  }
   if (format === "figma") {
     return (
       <svg width="18" height="18" viewBox="0 0 18 18">
@@ -1246,35 +1277,94 @@ function TerminalPanel({
   setTab,
   contextPlan,
   nodeResults,
+  outputs,
 }: {
-  tab: "results" | "live" | "plan" | "free";
-  setTab: (t: "results" | "live" | "plan" | "free") => void;
+  tab: "results" | "plan" | "outputs";
+  setTab: (t: "results" | "plan" | "outputs") => void;
   contextPlan: ContextPlan | null;
   nodeResults: Record<string, NodeRunResult>;
+  outputs: RunOutput[];
 }) {
   return (
     <aside className="panel terminal">
       <div className="tabs">
-        {(["results", "live", "plan", "free"] as const).map((t) => (
+        {(["results", "plan", "outputs"] as const).map((t) => (
           <button
             key={t}
             className={`tab ${tab === t ? "tab-active" : ""}`}
             onClick={() => setTab(t)}
           >
             {t}
+            {t === "outputs" && outputs.length > 0 && (
+              <span className="tab-count">{outputs.length}</span>
+            )}
           </button>
         ))}
       </div>
       <div className="terminal-body" style={{ padding: 0 }}>
         {tab === "results" && <ResultsView results={nodeResults} />}
-        <div style={{ display: tab === "live" ? "flex" : "none", flex: 1, minHeight: 0 }}>
-          <LiveTerminal />
-        </div>
         {tab === "plan" && <PlanView plan={contextPlan} />}
-        {tab === "free" && <div className="empty">Free CC session — v2</div>}
+        {tab === "outputs" && <OutputsView outputs={outputs} />}
       </div>
     </aside>
   );
+}
+
+function OutputsView({ outputs }: { outputs: RunOutput[] }) {
+  if (outputs.length === 0) {
+    return (
+      <div className="results-view">
+        <div className="empty">
+          No outputs yet. Output nodes will appear here once they finish.
+        </div>
+      </div>
+    );
+  }
+
+  const handleOpen = async (path: string) => {
+    try {
+      const expanded = path.startsWith("~/")
+        ? path.replace(/^~/, await getHome())
+        : path;
+      const { openPath } = await import("@tauri-apps/plugin-opener");
+      await openPath(expanded);
+    } catch (err) {
+      console.error("open failed", err);
+    }
+  };
+
+  return (
+    <div className="results-view">
+      {outputs.map((o) => (
+        <div className="output-card" key={`${o.nodeId}-${o.createdAt}`}>
+          <div className="output-icon">
+            <OutputFormatIcon format={o.format} />
+          </div>
+          <div className="output-body">
+            <div className="output-title">{o.title}</div>
+            <div className="output-path" title={o.path}>{o.path}</div>
+          </div>
+          <button
+            className="btn btn-sm"
+            onClick={() => handleOpen(o.path)}
+            title="Open file or folder"
+          >
+            Open
+          </button>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+async function getHome(): Promise<string> {
+  // Tauri exposes path APIs but using a raw env-like fallback works in WebView too
+  try {
+    const { homeDir } = await import("@tauri-apps/api/path");
+    return await homeDir();
+  } catch {
+    return "/Users/nickcoma";
+  }
 }
 
 function ResultsView({ results }: { results: Record<string, NodeRunResult> }) {
@@ -1416,6 +1506,7 @@ function buildPromptForNode(d: FlowNodeData): string {
 function defaultExtFor(fmt: OutputFormat): string {
   if (fmt === "word") return "docx";
   if (fmt === "powerpoint") return "pptx";
+  if (fmt === "excel") return "xlsx";
   if (fmt === "figma") return "fig";
   if (fmt === "json") return "json";
   return "md";
@@ -1432,8 +1523,11 @@ function outputInstructionFor(fmt: OutputFormat, path: string): string {
   if (fmt === "powerpoint") {
     return `${common}\n\nUse python-pptx (Python) to generate a real .pptx. Run a python script via the Bash tool that imports pptx, builds slides with title/content layouts based on the upstream structure, and saves it to the path. If python-pptx isn't installed, install it with pip first.`;
   }
+  if (fmt === "excel") {
+    return `${common}\n\nUse openpyxl (Python) to generate a real .xlsx. Run a python script via the Bash tool that imports openpyxl, builds a workbook with one or more sheets, populates rows from the upstream structured content, and saves it to the path. Use bold headers and freeze the top row. If openpyxl isn't installed, install it with pip first.`;
+  }
   if (fmt === "figma") {
-    return `${common}\n\nIf the user has a figma-cli skill or Figma plugin installed, use it. Otherwise, generate a Figma-import-friendly JSON describing the design and save it to the path with a .json extension. The user can then import it manually.`;
+    return `${common}\n\nUse the user's figma-cli skill (located at ~/figma-cli/) to render this design directly in Figma Desktop. Steps:\n\n1. Read ~/figma-cli/CLAUDE.md to load the latest command syntax.\n2. Connect to Figma Desktop with: node ~/figma-cli/src/index.js connect\n3. Render the upstream content as actual Figma frames using the render or render-batch command. For LinkedIn ads, create frames at the standard sizes: 1200x627 (sponsored content single image), 1080x1080 (square), and 1080x1350 (vertical). Each frame should contain the actual headline, body copy, CTA button, and visual layout described in the upstream context.\n4. If the upstream content is not for LinkedIn ads, infer the appropriate frame size from context.\n5. After rendering, report the Figma file URL or canvas info so the user can find it. Save a small text file at: ${path}.txt with the Figma file URL and frame names so it shows up in the Outputs tab.`;
   }
   // json
   return `${common}\n\nWrite the content as a single well-formed JSON document. Use the Write tool.`;

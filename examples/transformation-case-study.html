@@ -1,0 +1,547 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Flowbench — Org transformation in five workflows</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --ch-bg: #FFFFFF;
+    --ch-surface: #F7F7F8;
+    --ch-surface-raised: #F0F0F2;
+    --ch-text: #1A1A1A;
+    --ch-text-secondary: #6B6B6B;
+    --ch-text-tertiary: #9B9B9B;
+    --ch-border: #E5E5E7;
+    --ch-border-strong: #D4D4D6;
+    --ch-accent: #1A1A1A;
+    --ch-accent-subtle: #F5F5F5;
+    --ch-success: #16A34A;
+    --ch-warning: #D97706;
+    --ch-info: #2563EB;
+    --ch-error: #DC2626;
+    --ch-radius-sm: 4px;
+    --ch-radius-md: 8px;
+    --ch-radius-lg: 12px;
+    --ch-shadow: 0 1px 3px rgba(0,0,0,0.08);
+    --ch-shadow-md: 0 4px 12px rgba(0,0,0,0.08);
+    --ch-font-sans: 'Inter', system-ui, sans-serif;
+    --ch-font-mono: 'JetBrains Mono', ui-monospace, monospace;
+
+    /* node kind colors */
+    --kind-prompt: #1A1A1A;
+    --kind-skill: #2563EB;
+    --kind-subagent: #D97706;
+    --kind-assessment: #16A34A;
+    --kind-output: #9333EA;
+    --kind-repository: #0891B2;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; padding: 0;
+    background: var(--ch-bg);
+    color: var(--ch-text);
+    font-family: var(--ch-font-sans);
+    font-size: 14px;
+    line-height: 1.6;
+    -webkit-font-smoothing: antialiased;
+  }
+  .wrap {
+    max-width: 880px;
+    margin: 0 auto;
+    padding: 80px 32px 120px;
+  }
+  header.hero {
+    border-bottom: 1px solid var(--ch-border);
+    padding-bottom: 56px;
+    margin-bottom: 72px;
+  }
+  .eyebrow {
+    font-family: var(--ch-font-mono);
+    font-size: 11px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--ch-text-tertiary);
+    margin-bottom: 16px;
+  }
+  h1 {
+    font-size: 56px;
+    font-weight: 800;
+    letter-spacing: -0.02em;
+    line-height: 1.05;
+    margin: 0 0 20px;
+  }
+  .lede {
+    font-size: 19px;
+    color: var(--ch-text-secondary);
+    line-height: 1.55;
+    max-width: 640px;
+    margin: 0;
+  }
+  h2 {
+    font-size: 13px;
+    font-family: var(--ch-font-mono);
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--ch-text-tertiary);
+    margin: 0 0 24px;
+    padding-bottom: 16px;
+    border-bottom: 1px solid var(--ch-border);
+  }
+  h3 {
+    font-size: 28px;
+    font-weight: 700;
+    letter-spacing: -0.01em;
+    margin: 0 0 6px;
+    line-height: 1.15;
+  }
+  .domain-tag {
+    display: inline-block;
+    font-family: var(--ch-font-mono);
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--ch-text-tertiary);
+    margin-bottom: 16px;
+  }
+  p { margin: 0 0 16px; color: var(--ch-text); }
+  p.muted { color: var(--ch-text-secondary); }
+  code {
+    font-family: var(--ch-font-mono);
+    font-size: 12px;
+    background: var(--ch-accent-subtle);
+    padding: 2px 6px;
+    border-radius: var(--ch-radius-sm);
+  }
+  section.workflow {
+    margin-bottom: 96px;
+  }
+
+  /* Pitch hero stat block */
+  .pitch {
+    margin: 32px 0 0;
+    padding: 24px;
+    background: var(--ch-surface);
+    border: 1px solid var(--ch-border);
+    border-radius: var(--ch-radius-lg);
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 24px;
+  }
+  .pitch-stat {
+    border-left: 2px solid var(--ch-accent);
+    padding-left: 14px;
+  }
+  .pitch-stat .num {
+    font-size: 26px;
+    font-weight: 700;
+    letter-spacing: -0.01em;
+    line-height: 1;
+    margin-bottom: 6px;
+  }
+  .pitch-stat .label {
+    font-family: var(--ch-font-mono);
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--ch-text-tertiary);
+  }
+
+  /* Before / After block */
+  .ba {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 16px;
+    margin: 24px 0;
+  }
+  .ba-card {
+    border: 1px solid var(--ch-border);
+    border-radius: var(--ch-radius-md);
+    padding: 16px 18px;
+    background: var(--ch-bg);
+  }
+  .ba-card h4 {
+    margin: 0 0 8px;
+    font-family: var(--ch-font-mono);
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--ch-text-tertiary);
+    font-weight: 600;
+  }
+  .ba-card.before { background: var(--ch-surface); }
+  .ba-card p { margin: 0; font-size: 13px; line-height: 1.55; color: var(--ch-text); }
+
+  /* Diagram container */
+  .diagram {
+    margin: 32px 0 24px;
+    padding: 24px;
+    border: 1px solid var(--ch-border);
+    border-radius: var(--ch-radius-lg);
+    background: var(--ch-surface);
+    overflow-x: auto;
+  }
+  .diagram svg { display: block; margin: 0 auto; }
+
+  /* "What this exercises" callout */
+  .exercises {
+    margin-top: 16px;
+    padding: 14px 18px;
+    background: var(--ch-bg);
+    border: 1px solid var(--ch-border);
+    border-radius: var(--ch-radius-md);
+    font-size: 12px;
+  }
+  .exercises strong {
+    font-family: var(--ch-font-mono);
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--ch-text-tertiary);
+    font-weight: 600;
+    display: block;
+    margin-bottom: 6px;
+  }
+  .exercises code { font-size: 11px; }
+
+  /* Closing CTA */
+  .cta {
+    margin-top: 96px;
+    padding: 40px;
+    background: var(--ch-text);
+    color: var(--ch-bg);
+    border-radius: var(--ch-radius-lg);
+    text-align: center;
+  }
+  .cta h2 {
+    color: rgba(255,255,255,0.6);
+    border-color: rgba(255,255,255,0.15);
+  }
+  .cta h3 {
+    color: var(--ch-bg);
+    margin-bottom: 12px;
+  }
+  .cta p { color: rgba(255,255,255,0.75); margin: 0 auto; max-width: 480px; }
+
+  footer {
+    margin-top: 96px;
+    padding-top: 32px;
+    border-top: 1px solid var(--ch-border);
+    font-family: var(--ch-font-mono);
+    font-size: 11px;
+    color: var(--ch-text-tertiary);
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    display: flex;
+    justify-content: space-between;
+  }
+
+  @media (max-width: 720px) {
+    .wrap { padding: 48px 20px 80px; }
+    h1 { font-size: 38px; }
+    h3 { font-size: 22px; }
+    .ba, .pitch { grid-template-columns: 1fr; }
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header class="hero">
+    <div class="eyebrow">Flowbench · Org transformation in five workflows</div>
+    <h1>Most discovery work is already automatable. The hard part is composing it.</h1>
+    <p class="lede">Flowbench is a visual workbench for designing, running, and evolving agentic workflows on top of Claude Code. Below are five real workflows pulled from MCC's iX discovery docs — each one maps to a Flowbench graph that runs end-to-end on your Claude Max subscription. None of them require an engineering ticket.</p>
+
+    <div class="pitch">
+      <div class="pitch-stat">
+        <div class="num">5</div>
+        <div class="label">workflows mapped</div>
+      </div>
+      <div class="pitch-stat">
+        <div class="num">6</div>
+        <div class="label">node types · 1 visual canvas</div>
+      </div>
+      <div class="pitch-stat">
+        <div class="num">0</div>
+        <div class="label">engineering tickets</div>
+      </div>
+    </div>
+  </header>
+
+  <!-- ─────────────── Workflow 1: LinkedIn Ad ─────────────── -->
+  <section class="workflow" id="linkedin-ad">
+    <h2>01 · Creative production</h2>
+    <div class="domain-tag">Corporate Affairs · Demand, Paid, Social</div>
+    <h3>From a brief to a finished LinkedIn ad spec</h3>
+    <p class="muted">Today the SM+I team takes a creative request, brainstorms with the creative strategist, drafts copy, routes to legal, gets sign-off, hands off to globalization, then delivers to the media team. Fifteen-plus handoffs across a week.</p>
+
+    <div class="ba">
+      <div class="ba-card before">
+        <h4>Today</h4>
+        <p>5–7 days. Multiple handoffs across SM+I, Creative, Legal, PMM, Globalization, and the demand team. Brand voice and visual constraints live in scattered Sharepoint docs no one reads twice.</p>
+      </div>
+      <div class="ba-card">
+        <h4>With Flowbench</h4>
+        <p>15–20 minutes per first draft. Brand guidelines live in a Repository node and feed every step automatically. Three concept variants drafted in parallel, judged against the brief's hard constraints, and the winner is rendered directly into Figma at LinkedIn's standard ad sizes (1200×627, 1080×1080, 1080×1350).</p>
+      </div>
+    </div>
+
+    <div class="diagram">
+      <svg viewBox="0 0 800 480" width="780" height="468">
+        <defs>
+          <marker id="arrow" markerWidth="10" markerHeight="10" refX="9" refY="5" orient="auto"><path d="M0,0 L9,5 L0,10 Z" fill="#9B9B9B"/></marker>
+          <marker id="arrow-success" markerWidth="10" markerHeight="10" refX="9" refY="5" orient="auto"><path d="M0,0 L9,5 L0,10 Z" fill="#16A34A"/></marker>
+          <marker id="arrow-info" markerWidth="10" markerHeight="10" refX="9" refY="5" orient="auto"><path d="M0,0 L9,5 L0,10 Z" fill="#2563EB"/></marker>
+        </defs>
+        <!-- Repository -->
+        <g transform="translate(40,40)"><rect width="180" height="56" rx="8" fill="#FFF" stroke="#E5E5E7"/><rect width="3" height="56" fill="#0891B2"/><text x="14" y="22" font-size="9" font-family="JetBrains Mono, monospace" font-weight="700" fill="#0891B2" letter-spacing="0.08em">REPOSITORY</text><text x="14" y="40" font-size="12" font-weight="600" fill="#1A1A1A">brand-guidelines/</text></g>
+        <!-- Read brief -->
+        <g transform="translate(40,160)"><rect width="180" height="56" rx="8" fill="#FFF" stroke="#E5E5E7"/><rect width="3" height="56" fill="#1A1A1A"/><text x="14" y="22" font-size="9" font-family="JetBrains Mono, monospace" font-weight="700" fill="#1A1A1A" letter-spacing="0.08em">PROMPT · @brief.md</text><text x="14" y="40" font-size="12" font-weight="600" fill="#1A1A1A">Read the brief</text></g>
+        <!-- Generate concepts -->
+        <g transform="translate(290,100)"><rect width="200" height="56" rx="8" fill="#FFF" stroke="#E5E5E7"/><rect width="3" height="56" fill="#1A1A1A"/><text x="14" y="22" font-size="9" font-family="JetBrains Mono, monospace" font-weight="700" fill="#1A1A1A" letter-spacing="0.08em">PROMPT</text><text x="14" y="40" font-size="12" font-weight="600" fill="#1A1A1A">Generate 3 concepts</text></g>
+        <!-- Draft copy -->
+        <g transform="translate(290,200)"><rect width="200" height="56" rx="8" fill="#FFF" stroke="#E5E5E7"/><rect width="3" height="56" fill="#1A1A1A"/><text x="14" y="22" font-size="9" font-family="JetBrains Mono, monospace" font-weight="700" fill="#1A1A1A" letter-spacing="0.08em">PROMPT</text><text x="14" y="40" font-size="12" font-weight="600" fill="#1A1A1A">Draft headline + body</text></g>
+        <!-- Assessment -->
+        <g transform="translate(290,300)"><rect width="200" height="56" rx="8" fill="#FFF" stroke="#E5E5E7"/><rect width="3" height="56" fill="#16A34A"/><text x="14" y="22" font-size="9" font-family="JetBrains Mono, monospace" font-weight="700" fill="#16A34A" letter-spacing="0.08em">ASSESSMENT</text><text x="14" y="40" font-size="12" font-weight="600" fill="#1A1A1A">Ship-ready?</text></g>
+        <!-- Yes branch -->
+        <g transform="translate(540,250)"><rect width="200" height="56" rx="8" fill="#FFF" stroke="#E5E5E7"/><rect width="3" height="56" fill="#1A1A1A"/><text x="14" y="22" font-size="9" font-family="JetBrains Mono, monospace" font-weight="700" fill="#1A1A1A" letter-spacing="0.08em">PROMPT</text><text x="14" y="40" font-size="12" font-weight="600" fill="#1A1A1A">Pick winner + final spec</text></g>
+        <!-- No branch -->
+        <g transform="translate(540,360)"><rect width="200" height="56" rx="8" fill="#FFF" stroke="#E5E5E7"/><rect width="3" height="56" fill="#1A1A1A"/><text x="14" y="22" font-size="9" font-family="JetBrains Mono, monospace" font-weight="700" fill="#1A1A1A" letter-spacing="0.08em">PROMPT</text><text x="14" y="40" font-size="12" font-weight="600" fill="#1A1A1A">Diagnose + revise</text></g>
+        <!-- Output -->
+        <g transform="translate(540,420)"><rect width="200" height="56" rx="8" fill="#FFF" stroke="#E5E5E7"/><rect width="3" height="56" fill="#9333EA"/><text x="14" y="22" font-size="9" font-family="JetBrains Mono, monospace" font-weight="700" fill="#9333EA" letter-spacing="0.08em">OUTPUT · FIGMA</text><text x="14" y="40" font-size="12" font-weight="600" fill="#1A1A1A">LinkedIn ad frames</text></g>
+        <!-- Edges -->
+        <path d="M130,96 C130,120 130,140 130,160" fill="none" stroke="#9B9B9B" stroke-width="1.6" marker-end="url(#arrow)"/>
+        <path d="M220,68 C260,68 260,128 290,128" fill="none" stroke="#9B9B9B" stroke-width="1.6" marker-end="url(#arrow)"/>
+        <path d="M220,188 C260,188 260,128 290,128" fill="none" stroke="#9B9B9B" stroke-width="1.6" marker-end="url(#arrow)"/>
+        <path d="M390,156 C390,180 390,200 390,200" fill="none" stroke="#9B9B9B" stroke-width="1.6" marker-end="url(#arrow)"/>
+        <path d="M390,256 C390,280 390,300 390,300" fill="none" stroke="#9B9B9B" stroke-width="1.6" marker-end="url(#arrow)"/>
+        <path d="M490,320 C520,320 520,278 540,278" fill="none" stroke="#16A34A" stroke-width="1.6" stroke-dasharray="6 4" marker-end="url(#arrow-success)"/>
+        <text x="500" y="295" font-size="9" font-family="JetBrains Mono, monospace" fill="#16A34A" font-weight="700">YES</text>
+        <path d="M490,340 C520,340 520,388 540,388" fill="none" stroke="#DC2626" stroke-width="1.6" stroke-dasharray="6 4" marker-end="url(#arrow)"/>
+        <text x="500" y="370" font-size="9" font-family="JetBrains Mono, monospace" fill="#DC2626" font-weight="700">NO</text>
+        <path d="M640,306 C640,360 640,420 640,420" fill="none" stroke="#9B9B9B" stroke-width="1.6" marker-end="url(#arrow)"/>
+        <path d="M640,416 C640,420 640,420 640,420" fill="none" stroke="#9B9B9B" stroke-width="1.6"/>
+        <path d="M640,416 L640,420" fill="none" stroke="#9B9B9B" stroke-width="1.6"/>
+      </svg>
+    </div>
+
+    <div class="exercises">
+      <strong>What this exercises</strong>
+      Repository node · Prompt with file attachment (the brief) · Multi-input fan-in (brand + brief) · Assessment with conditional branching (ship-ready / not) · Output node that drives the <code>figma-cli</code> skill to render the winning concept as actual Figma frames at LinkedIn's standard ad sizes.
+    </div>
+  </section>
+
+  <!-- ─────────────── Workflow 2: Trending Content Report ─────────────── -->
+  <section class="workflow" id="trending">
+    <h2>02 · Weekly content marketing</h2>
+    <div class="domain-tag">CSR · IBM SkillsBuild</div>
+    <h3>Weekly trending content report, in six languages</h3>
+    <p class="muted">Every Friday a Program Manager exports an engagement CSV from SkillsBuild Service Center, ranks the top adult and high-school courses, segments by language, drafts spotlights in English and Brazilian Portuguese, then sends the lists to LEDs and Geo teams to localize for Arabic, Bahasa, French, and Spanish.</p>
+
+    <div class="ba">
+      <div class="ba-card before">
+        <h4>Today</h4>
+        <p>Half a day, every week. Manual export. Manual ranking. Manual segmentation. Manual drafting in two languages. Manual handoff to four geo teams. Inconsistent voice across regions because no one's reading the brand doc.</p>
+      </div>
+      <div class="ba-card">
+        <h4>With Flowbench</h4>
+        <p>10 minutes. Top-5 adult and Top-5 high-school filters run in parallel. English and Brazilian Portuguese spotlights drafted in parallel. Four-language localized lists generated in parallel. All three branches converge into a single Word document the team can drop into the existing review pipeline.</p>
+      </div>
+    </div>
+
+    <div class="diagram">
+      <svg viewBox="0 0 800 440" width="780" height="430">
+        <defs>
+          <marker id="arrow2" markerWidth="10" markerHeight="10" refX="9" refY="5" orient="auto"><path d="M0,0 L9,5 L0,10 Z" fill="#9B9B9B"/></marker>
+        </defs>
+        <!-- Repository -->
+        <g transform="translate(310,20)"><rect width="200" height="56" rx="8" fill="#FFF" stroke="#E5E5E7"/><rect width="3" height="56" fill="#0891B2"/><text x="14" y="22" font-size="9" font-family="JetBrains Mono, monospace" font-weight="700" fill="#0891B2" letter-spacing="0.08em">REPOSITORY</text><text x="14" y="40" font-size="12" font-weight="600" fill="#1A1A1A">engagement.csv</text></g>
+        <!-- Top adult -->
+        <g transform="translate(80,140)"><rect width="200" height="56" rx="8" fill="#FFF" stroke="#E5E5E7"/><rect width="3" height="56" fill="#1A1A1A"/><text x="14" y="22" font-size="9" font-family="JetBrains Mono, monospace" font-weight="700" fill="#1A1A1A" letter-spacing="0.08em">PROMPT · PARALLEL</text><text x="14" y="40" font-size="12" font-weight="600" fill="#1A1A1A">Top 5 adult courses</text></g>
+        <!-- Top HS -->
+        <g transform="translate(540,140)"><rect width="200" height="56" rx="8" fill="#FFF" stroke="#E5E5E7"/><rect width="3" height="56" fill="#1A1A1A"/><text x="14" y="22" font-size="9" font-family="JetBrains Mono, monospace" font-weight="700" fill="#1A1A1A" letter-spacing="0.08em">PROMPT · PARALLEL</text><text x="14" y="40" font-size="12" font-weight="600" fill="#1A1A1A">Top 5 high school</text></g>
+        <!-- English spotlights -->
+        <g transform="translate(20,260)"><rect width="200" height="56" rx="8" fill="#FFF" stroke="#E5E5E7"/><rect width="3" height="56" fill="#1A1A1A"/><text x="14" y="22" font-size="9" font-family="JetBrains Mono, monospace" font-weight="700" fill="#1A1A1A" letter-spacing="0.08em">PROMPT · PARALLEL</text><text x="14" y="40" font-size="12" font-weight="600" fill="#1A1A1A">English spotlights</text></g>
+        <!-- PT spotlights -->
+        <g transform="translate(240,260)"><rect width="200" height="56" rx="8" fill="#FFF" stroke="#E5E5E7"/><rect width="3" height="56" fill="#1A1A1A"/><text x="14" y="22" font-size="9" font-family="JetBrains Mono, monospace" font-weight="700" fill="#1A1A1A" letter-spacing="0.08em">PROMPT · PARALLEL</text><text x="14" y="40" font-size="12" font-weight="600" fill="#1A1A1A">PT-BR spotlights</text></g>
+        <!-- 4-lang lists -->
+        <g transform="translate(540,260)"><rect width="200" height="56" rx="8" fill="#FFF" stroke="#E5E5E7"/><rect width="3" height="56" fill="#1A1A1A"/><text x="14" y="22" font-size="9" font-family="JetBrains Mono, monospace" font-weight="700" fill="#1A1A1A" letter-spacing="0.08em">PROMPT · PARALLEL</text><text x="14" y="40" font-size="12" font-weight="600" fill="#1A1A1A">AR · ID · FR · ES lists</text></g>
+        <!-- Output -->
+        <g transform="translate(310,380)"><rect width="200" height="56" rx="8" fill="#FFF" stroke="#E5E5E7"/><rect width="3" height="56" fill="#9333EA"/><text x="14" y="22" font-size="9" font-family="JetBrains Mono, monospace" font-weight="700" fill="#9333EA" letter-spacing="0.08em">OUTPUT · WORD</text><text x="14" y="40" font-size="12" font-weight="600" fill="#1A1A1A">trending-report.docx</text></g>
+        <!-- Edges from repo to top filters -->
+        <path d="M380,76 C380,108 180,108 180,140" fill="none" stroke="#9B9B9B" stroke-width="1.6" marker-end="url(#arrow2)"/>
+        <path d="M440,76 C440,108 640,108 640,140" fill="none" stroke="#9B9B9B" stroke-width="1.6" marker-end="url(#arrow2)"/>
+        <!-- Top adult fans out to EN + PT -->
+        <path d="M150,196 C150,228 120,228 120,260" fill="none" stroke="#9B9B9B" stroke-width="1.6" marker-end="url(#arrow2)"/>
+        <path d="M210,196 C210,228 340,228 340,260" fill="none" stroke="#9B9B9B" stroke-width="1.6" marker-end="url(#arrow2)"/>
+        <!-- Top HS feeds 4-lang -->
+        <path d="M640,196 C640,228 640,228 640,260" fill="none" stroke="#9B9B9B" stroke-width="1.6" marker-end="url(#arrow2)"/>
+        <!-- All three feed output -->
+        <path d="M120,316 C120,360 360,360 360,380" fill="none" stroke="#9B9B9B" stroke-width="1.6" marker-end="url(#arrow2)"/>
+        <path d="M340,316 C340,360 400,360 400,380" fill="none" stroke="#9B9B9B" stroke-width="1.6" marker-end="url(#arrow2)"/>
+        <path d="M640,316 C640,360 440,360 440,380" fill="none" stroke="#9B9B9B" stroke-width="1.6" marker-end="url(#arrow2)"/>
+      </svg>
+    </div>
+
+    <div class="exercises">
+      <strong>What this exercises</strong>
+      Repository node · True parallel execution at two levels · Multi-parent fan-in · Output node materializing a finished Word document so the team can keep their existing review pipeline. The clearest demonstration of Flowbench's parallel run loop in action.
+    </div>
+  </section>
+
+  <!-- ─────────────── Workflow 3: Monthly Social Metrics ─────────────── -->
+  <section class="workflow" id="metrics">
+    <h2>03 · Monthly insights cycle</h2>
+    <div class="domain-tag">Corporate Affairs · Social Media &amp; Influence</div>
+    <h3>Monthly social media metrics &amp; insights deck</h3>
+    <p class="muted">A Social Media Intelligence Analyst downloads organic social data from Sprinklr, cleans it in Excel, curates the highlights, runs trend and YoY analysis, drafts insight callouts, and produces a monthly insights deck.</p>
+
+    <div class="ba">
+      <div class="ba-card before">
+        <h4>Today</h4>
+        <p>Two days, every month. Most of the time goes to Excel cleaning and curation, not actual analysis. Insights are slow to surface and the deck format drifts month-to-month because every analyst structures it slightly differently.</p>
+      </div>
+      <div class="ba-card">
+        <h4>With Flowbench</h4>
+        <p>30 minutes of supervised execution. Sprinklr export drops into a Repository node, cleaning and YoY analysis run as separate Prompt nodes, and the Output node generates a real Excel workbook so the analyst can keep working in the tool they already use.</p>
+      </div>
+    </div>
+
+    <div class="diagram">
+      <svg viewBox="0 0 800 360" width="780" height="350">
+        <defs>
+          <marker id="arrow3" markerWidth="10" markerHeight="10" refX="9" refY="5" orient="auto"><path d="M0,0 L9,5 L0,10 Z" fill="#9B9B9B"/></marker>
+        </defs>
+        <g transform="translate(40,40)"><rect width="200" height="56" rx="8" fill="#FFF" stroke="#E5E5E7"/><rect width="3" height="56" fill="#0891B2"/><text x="14" y="22" font-size="9" font-family="JetBrains Mono, monospace" font-weight="700" fill="#0891B2" letter-spacing="0.08em">REPOSITORY</text><text x="14" y="40" font-size="12" font-weight="600" fill="#1A1A1A">sprinklr-export.csv</text></g>
+        <g transform="translate(300,40)"><rect width="200" height="56" rx="8" fill="#FFF" stroke="#E5E5E7"/><rect width="3" height="56" fill="#1A1A1A"/><text x="14" y="22" font-size="9" font-family="JetBrains Mono, monospace" font-weight="700" fill="#1A1A1A" letter-spacing="0.08em">PROMPT</text><text x="14" y="40" font-size="12" font-weight="600" fill="#1A1A1A">Clean &amp; curate</text></g>
+        <g transform="translate(560,40)"><rect width="200" height="56" rx="8" fill="#FFF" stroke="#E5E5E7"/><rect width="3" height="56" fill="#1A1A1A"/><text x="14" y="22" font-size="9" font-family="JetBrains Mono, monospace" font-weight="700" fill="#1A1A1A" letter-spacing="0.08em">PROMPT</text><text x="14" y="40" font-size="12" font-weight="600" fill="#1A1A1A">Trend analysis</text></g>
+        <g transform="translate(170,160)"><rect width="200" height="56" rx="8" fill="#FFF" stroke="#E5E5E7"/><rect width="3" height="56" fill="#1A1A1A"/><text x="14" y="22" font-size="9" font-family="JetBrains Mono, monospace" font-weight="700" fill="#1A1A1A" letter-spacing="0.08em">PROMPT · PARALLEL</text><text x="14" y="40" font-size="12" font-weight="600" fill="#1A1A1A">YoY comparison</text></g>
+        <g transform="translate(430,160)"><rect width="200" height="56" rx="8" fill="#FFF" stroke="#E5E5E7"/><rect width="3" height="56" fill="#1A1A1A"/><text x="14" y="22" font-size="9" font-family="JetBrains Mono, monospace" font-weight="700" fill="#1A1A1A" letter-spacing="0.08em">PROMPT · PARALLEL</text><text x="14" y="40" font-size="12" font-weight="600" fill="#1A1A1A">Draft insight callouts</text></g>
+        <g transform="translate(300,280)"><rect width="200" height="56" rx="8" fill="#FFF" stroke="#E5E5E7"/><rect width="3" height="56" fill="#9333EA"/><text x="14" y="22" font-size="9" font-family="JetBrains Mono, monospace" font-weight="700" fill="#9333EA" letter-spacing="0.08em">OUTPUT · EXCEL</text><text x="14" y="40" font-size="12" font-weight="600" fill="#1A1A1A">monthly-insights.xlsx</text></g>
+        <path d="M240,68 C270,68 270,68 300,68" fill="none" stroke="#9B9B9B" stroke-width="1.6" marker-end="url(#arrow3)"/>
+        <path d="M500,68 C530,68 530,68 560,68" fill="none" stroke="#9B9B9B" stroke-width="1.6" marker-end="url(#arrow3)"/>
+        <path d="M400,96 C400,128 270,128 270,160" fill="none" stroke="#9B9B9B" stroke-width="1.6" marker-end="url(#arrow3)"/>
+        <path d="M660,96 C660,128 530,128 530,160" fill="none" stroke="#9B9B9B" stroke-width="1.6" marker-end="url(#arrow3)"/>
+        <path d="M270,216 C270,248 360,248 360,280" fill="none" stroke="#9B9B9B" stroke-width="1.6" marker-end="url(#arrow3)"/>
+        <path d="M530,216 C530,248 440,248 440,280" fill="none" stroke="#9B9B9B" stroke-width="1.6" marker-end="url(#arrow3)"/>
+      </svg>
+    </div>
+
+    <div class="exercises">
+      <strong>What this exercises</strong>
+      Repository node · Sequential cleaning and analysis · Parallel YoY comparison and insight drafting · Output node materializing a real <code>.xlsx</code> via <code>openpyxl</code> so the analyst lands back in Excel.
+    </div>
+  </section>
+
+  <!-- ─────────────── Workflow 4: RFI Automation ─────────────── -->
+  <section class="workflow" id="rfi">
+    <h2>04 · Analyst relations</h2>
+    <div class="domain-tag">Analyst Relations · RFI Response</div>
+    <h3>Drafting an RFI response from an answer library</h3>
+    <p class="muted">An incoming RFI lands in any of three formats. The Content Leader manually opens it, scans 50–200 questions, finds matching answers in past completed RFIs, drafts new responses where needed, and routes to the RFI owner for review. The diagram explicitly notes <em>"introducing partial or full automation could be beneficial."</em></p>
+
+    <div class="ba">
+      <div class="ba-card before">
+        <h4>Today</h4>
+        <p>1–2 weeks per RFI. The bottleneck is scanning past answers manually. Quality varies because no two analysts remember the same canonical answers.</p>
+      </div>
+      <div class="ba-card">
+        <h4>With Flowbench</h4>
+        <p>2–3 hours including human review. The Repository node points at the past-RFIs folder. The new RFI is attached to a Prompt node. Claude matches each question against the answer library, flags low-confidence questions, and only sends the uncertain ones to a human.</p>
+      </div>
+    </div>
+
+    <div class="diagram">
+      <svg viewBox="0 0 800 460" width="780" height="450">
+        <defs>
+          <marker id="arrow4" markerWidth="10" markerHeight="10" refX="9" refY="5" orient="auto"><path d="M0,0 L9,5 L0,10 Z" fill="#9B9B9B"/></marker>
+          <marker id="arrow4g" markerWidth="10" markerHeight="10" refX="9" refY="5" orient="auto"><path d="M0,0 L9,5 L0,10 Z" fill="#16A34A"/></marker>
+          <marker id="arrow4r" markerWidth="10" markerHeight="10" refX="9" refY="5" orient="auto"><path d="M0,0 L9,5 L0,10 Z" fill="#DC2626"/></marker>
+        </defs>
+        <g transform="translate(40,40)"><rect width="220" height="56" rx="8" fill="#FFF" stroke="#E5E5E7"/><rect width="3" height="56" fill="#0891B2"/><text x="14" y="22" font-size="9" font-family="JetBrains Mono, monospace" font-weight="700" fill="#0891B2" letter-spacing="0.08em">REPOSITORY</text><text x="14" y="40" font-size="12" font-weight="600" fill="#1A1A1A">past-rfis/</text></g>
+        <g transform="translate(40,140)"><rect width="220" height="56" rx="8" fill="#FFF" stroke="#E5E5E7"/><rect width="3" height="56" fill="#1A1A1A"/><text x="14" y="22" font-size="9" font-family="JetBrains Mono, monospace" font-weight="700" fill="#1A1A1A" letter-spacing="0.08em">PROMPT · @new-rfi.docx</text><text x="14" y="40" font-size="12" font-weight="600" fill="#1A1A1A">Read incoming RFI</text></g>
+        <g transform="translate(310,90)"><rect width="220" height="56" rx="8" fill="#FFF" stroke="#E5E5E7"/><rect width="3" height="56" fill="#1A1A1A"/><text x="14" y="22" font-size="9" font-family="JetBrains Mono, monospace" font-weight="700" fill="#1A1A1A" letter-spacing="0.08em">PROMPT</text><text x="14" y="40" font-size="12" font-weight="600" fill="#1A1A1A">Match against answer library</text></g>
+        <g transform="translate(310,200)"><rect width="220" height="56" rx="8" fill="#FFF" stroke="#E5E5E7"/><rect width="3" height="56" fill="#1A1A1A"/><text x="14" y="22" font-size="9" font-family="JetBrains Mono, monospace" font-weight="700" fill="#1A1A1A" letter-spacing="0.08em">PROMPT</text><text x="14" y="40" font-size="12" font-weight="600" fill="#1A1A1A">Draft full response</text></g>
+        <g transform="translate(310,300)"><rect width="220" height="56" rx="8" fill="#FFF" stroke="#E5E5E7"/><rect width="3" height="56" fill="#16A34A"/><text x="14" y="22" font-size="9" font-family="JetBrains Mono, monospace" font-weight="700" fill="#16A34A" letter-spacing="0.08em">ASSESSMENT</text><text x="14" y="40" font-size="12" font-weight="600" fill="#1A1A1A">All answers high confidence?</text></g>
+        <g transform="translate(580,260)"><rect width="200" height="56" rx="8" fill="#FFF" stroke="#E5E5E7"/><rect width="3" height="56" fill="#9333EA"/><text x="14" y="22" font-size="9" font-family="JetBrains Mono, monospace" font-weight="700" fill="#9333EA" letter-spacing="0.08em">OUTPUT · WORD</text><text x="14" y="40" font-size="12" font-weight="600" fill="#1A1A1A">rfi-response.docx</text></g>
+        <g transform="translate(580,360)"><rect width="200" height="56" rx="8" fill="#FFF" stroke="#E5E5E7"/><rect width="3" height="56" fill="#9333EA"/><text x="14" y="22" font-size="9" font-family="JetBrains Mono, monospace" font-weight="700" fill="#9333EA" letter-spacing="0.08em">OUTPUT · MARKDOWN</text><text x="14" y="40" font-size="12" font-weight="600" fill="#1A1A1A">human-review-list.md</text></g>
+        <path d="M260,68 C290,68 290,118 310,118" fill="none" stroke="#9B9B9B" stroke-width="1.6" marker-end="url(#arrow4)"/>
+        <path d="M260,168 C290,168 290,118 310,118" fill="none" stroke="#9B9B9B" stroke-width="1.6" marker-end="url(#arrow4)"/>
+        <path d="M420,146 C420,170 420,200 420,200" fill="none" stroke="#9B9B9B" stroke-width="1.6" marker-end="url(#arrow4)"/>
+        <path d="M420,256 C420,278 420,300 420,300" fill="none" stroke="#9B9B9B" stroke-width="1.6" marker-end="url(#arrow4)"/>
+        <path d="M530,320 C555,320 555,288 580,288" fill="none" stroke="#16A34A" stroke-width="1.6" stroke-dasharray="6 4" marker-end="url(#arrow4g)"/>
+        <text x="538" y="305" font-size="9" font-family="JetBrains Mono, monospace" fill="#16A34A" font-weight="700">YES</text>
+        <path d="M530,340 C555,340 555,388 580,388" fill="none" stroke="#DC2626" stroke-width="1.6" stroke-dasharray="6 4" marker-end="url(#arrow4r)"/>
+        <text x="538" y="370" font-size="9" font-family="JetBrains Mono, monospace" fill="#DC2626" font-weight="700">NO</text>
+      </svg>
+    </div>
+
+    <div class="exercises">
+      <strong>What this exercises</strong>
+      Repository node (the answer library) · Prompt with attachment (the new RFI) · Assessment branching on confidence · Two parallel Output nodes — a finished Word document for the high-confidence path, a Markdown review list for the human-in-the-loop path.
+    </div>
+  </section>
+
+  <!-- ─────────────── Workflow 5: Benchmarking ─────────────── -->
+  <section class="workflow" id="benchmarking">
+    <h2>05 · Strategic intelligence</h2>
+    <div class="domain-tag">CSR · Responsible Business Strategy</div>
+    <h3>Peer benchmarking from a new disclosure release</h3>
+    <p class="muted">When a new peer report drops, a Program Manager searches peer websites and Datamaran, document past disclosures, consolidates everything in Excel, and presents a high-level analysis in PowerPoint to executives.</p>
+
+    <div class="ba">
+      <div class="ba-card before">
+        <h4>Today</h4>
+        <p>3–5 days per peer release. The work is mostly mechanical comparison — extract their numbers, line them up against ours, find the deltas. The actual judgment is the final 30 minutes.</p>
+      </div>
+      <div class="ba-card">
+        <h4>With Flowbench</h4>
+        <p>2 hours. Past peer disclosures live in the Repository. The new release is attached. Claude extracts scores and commitments, runs the comparison and gap analysis in parallel, then synthesizes a delta narrative for the executive deck.</p>
+      </div>
+    </div>
+
+    <div class="diagram">
+      <svg viewBox="0 0 800 400" width="780" height="390">
+        <defs>
+          <marker id="arrow5" markerWidth="10" markerHeight="10" refX="9" refY="5" orient="auto"><path d="M0,0 L9,5 L0,10 Z" fill="#9B9B9B"/></marker>
+        </defs>
+        <g transform="translate(40,40)"><rect width="220" height="56" rx="8" fill="#FFF" stroke="#E5E5E7"/><rect width="3" height="56" fill="#0891B2"/><text x="14" y="22" font-size="9" font-family="JetBrains Mono, monospace" font-weight="700" fill="#0891B2" letter-spacing="0.08em">REPOSITORY</text><text x="14" y="40" font-size="12" font-weight="600" fill="#1A1A1A">peer-disclosures/</text></g>
+        <g transform="translate(40,140)"><rect width="220" height="56" rx="8" fill="#FFF" stroke="#E5E5E7"/><rect width="3" height="56" fill="#1A1A1A"/><text x="14" y="22" font-size="9" font-family="JetBrains Mono, monospace" font-weight="700" fill="#1A1A1A" letter-spacing="0.08em">PROMPT · @new-peer.pdf</text><text x="14" y="40" font-size="12" font-weight="600" fill="#1A1A1A">Read new disclosure</text></g>
+        <g transform="translate(300,90)"><rect width="220" height="56" rx="8" fill="#FFF" stroke="#E5E5E7"/><rect width="3" height="56" fill="#1A1A1A"/><text x="14" y="22" font-size="9" font-family="JetBrains Mono, monospace" font-weight="700" fill="#1A1A1A" letter-spacing="0.08em">PROMPT</text><text x="14" y="40" font-size="12" font-weight="600" fill="#1A1A1A">Extract scores + commitments</text></g>
+        <g transform="translate(300,200)"><rect width="220" height="56" rx="8" fill="#FFF" stroke="#E5E5E7"/><rect width="3" height="56" fill="#1A1A1A"/><text x="14" y="22" font-size="9" font-family="JetBrains Mono, monospace" font-weight="700" fill="#1A1A1A" letter-spacing="0.08em">PROMPT · PARALLEL</text><text x="14" y="40" font-size="12" font-weight="600" fill="#1A1A1A">Compare to IBM</text></g>
+        <g transform="translate(300,280)"><rect width="220" height="56" rx="8" fill="#FFF" stroke="#E5E5E7"/><rect width="3" height="56" fill="#1A1A1A"/><text x="14" y="22" font-size="9" font-family="JetBrains Mono, monospace" font-weight="700" fill="#1A1A1A" letter-spacing="0.08em">PROMPT · PARALLEL</text><text x="14" y="40" font-size="12" font-weight="600" fill="#1A1A1A">Identify gaps</text></g>
+        <g transform="translate(560,240)"><rect width="200" height="56" rx="8" fill="#FFF" stroke="#E5E5E7"/><rect width="3" height="56" fill="#1A1A1A"/><text x="14" y="22" font-size="9" font-family="JetBrains Mono, monospace" font-weight="700" fill="#1A1A1A" letter-spacing="0.08em">PROMPT</text><text x="14" y="40" font-size="12" font-weight="600" fill="#1A1A1A">Synthesize delta narrative</text></g>
+        <g transform="translate(560,340)"><rect width="200" height="56" rx="8" fill="#FFF" stroke="#E5E5E7"/><rect width="3" height="56" fill="#9333EA"/><text x="14" y="22" font-size="9" font-family="JetBrains Mono, monospace" font-weight="700" fill="#9333EA" letter-spacing="0.08em">OUTPUT · POWERPOINT</text><text x="14" y="40" font-size="12" font-weight="600" fill="#1A1A1A">peer-benchmark.pptx</text></g>
+        <path d="M260,68 C280,68 280,118 300,118" fill="none" stroke="#9B9B9B" stroke-width="1.6" marker-end="url(#arrow5)"/>
+        <path d="M260,168 C280,168 280,118 300,118" fill="none" stroke="#9B9B9B" stroke-width="1.6" marker-end="url(#arrow5)"/>
+        <path d="M410,146 C410,170 410,200 410,200" fill="none" stroke="#9B9B9B" stroke-width="1.6" marker-end="url(#arrow5)"/>
+        <path d="M410,146 C410,170 410,280 410,280" fill="none" stroke="#9B9B9B" stroke-width="1.6" marker-end="url(#arrow5)"/>
+        <path d="M520,228 C540,228 540,268 560,268" fill="none" stroke="#9B9B9B" stroke-width="1.6" marker-end="url(#arrow5)"/>
+        <path d="M520,308 C540,308 540,268 560,268" fill="none" stroke="#9B9B9B" stroke-width="1.6" marker-end="url(#arrow5)"/>
+        <path d="M660,296 C660,318 660,340 660,340" fill="none" stroke="#9B9B9B" stroke-width="1.6" marker-end="url(#arrow5)"/>
+      </svg>
+    </div>
+
+    <div class="exercises">
+      <strong>What this exercises</strong>
+      Repository node (institutional memory) · Attached new document · Parallel comparison + gap analysis · Synthesis fan-in · Output node materializing a real PowerPoint deck.
+    </div>
+  </section>
+
+  <!-- ─────────────── Closing pitch ─────────────── -->
+  <div class="cta">
+    <h2>The pattern</h2>
+    <h3>Discovery work isn't a one-off. Make it a flow.</h3>
+    <p>Every workflow above started life as a scrolling Mural diagram explaining how a team does something today. Flowbench is what you build once you've finished discovering and want the work itself to start happening on a graph instead of a Slack thread.</p>
+  </div>
+
+  <footer>
+    <div>Flowbench · v0.2-dev</div>
+    <div>github.com/comacoded/flowbench</div>
+  </footer>
+
+</div>
+</body>
+</html>

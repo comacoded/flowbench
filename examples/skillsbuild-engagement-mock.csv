@@ -1,0 +1,17 @@
+course_id,course_title,learner_type,language,enrollments,completions,avg_minutes_spent
+SB-101,AI Foundations,adult,en,8420,4210,72
+SB-102,Data Science Basics,adult,en,7150,3890,98
+SB-103,Cloud Computing 101,adult,en,5240,2110,55
+SB-104,Cybersecurity Essentials,adult,en,6320,3010,84
+SB-105,Generative AI for Business,adult,en,9180,4520,110
+SB-106,Python for Beginners,adult,en,11200,6800,140
+SB-107,Project Management,adult,en,4800,2200,68
+SB-108,Design Thinking,adult,en,3900,1750,52
+SB-201,Intro to Coding,highschool,en,12100,7300,95
+SB-202,Digital Citizenship,highschool,en,9200,5400,40
+SB-203,Career Exploration,highschool,en,7600,3200,38
+SB-204,Robotics Basics,highschool,en,6800,4100,72
+SB-205,AI for Teens,highschool,en,10500,6900,88
+SB-206,Web Design Starter,highschool,en,5400,2800,55
+SB-207,Cybersecurity for Students,highschool,en,8100,5100,64
+SB-208,Math Fundamentals,highschool,en,4900,1900,45

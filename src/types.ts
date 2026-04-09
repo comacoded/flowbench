@@ -8,12 +8,19 @@ export type NodeKind =
   | "output"
   | "repository";
 
-export type OutputFormat = "markdown" | "word" | "powerpoint" | "figma" | "json";
+export type OutputFormat =
+  | "markdown"
+  | "word"
+  | "powerpoint"
+  | "excel"
+  | "figma"
+  | "json";
 
 export const OUTPUT_FORMAT_LABELS: Record<OutputFormat, string> = {
   markdown: "Markdown (.md)",
   word: "Word document (.docx)",
   powerpoint: "PowerPoint (.pptx)",
+  excel: "Excel spreadsheet (.xlsx)",
   figma: "Figma file",
   json: "JSON (.json)",
 };

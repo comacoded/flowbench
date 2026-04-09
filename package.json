@@ -1,7 +1,7 @@
 {
   "name": "flowbench",
   "private": true,
-  "version": "0.1.1-mvp",
+  "version": "0.2.0-mvp",
   "type": "module",
   "scripts": {
     "dev": "vite",

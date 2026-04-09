@@ -1,0 +1,138 @@
+{
+  "version": 1,
+  "name": "CSR Trending Content Report",
+  "nodes": [
+    {
+      "id": "n1",
+      "type": "repository",
+      "position": { "x": 60, "y": 280 },
+      "data": {
+        "kind": "repository",
+        "title": "SkillsBuild engagement CSV",
+        "repoPath": "/Users/nickcoma/Documents/Flowbench/examples/skillsbuild-engagement-mock.csv",
+        "repoDescription": "Mock weekly engagement export from IBM SkillsBuild Service Center"
+      }
+    },
+    {
+      "id": "n2",
+      "type": "prompt",
+      "position": { "x": 360, "y": 120 },
+      "data": {
+        "kind": "prompt",
+        "title": "Top 5 adult learner courses",
+        "prompt": "Read the engagement CSV from the upstream context. Filter rows where learner_type is 'adult'. Rank by completions descending. Return the top 5 as a markdown table with columns: rank, course_id, course_title, enrollments, completions, avg_minutes_spent.",
+        "model": "auto",
+        "attachments": []
+      }
+    },
+    {
+      "id": "n3",
+      "type": "prompt",
+      "position": { "x": 360, "y": 440 },
+      "data": {
+        "kind": "prompt",
+        "title": "Top 5 high school learner courses",
+        "prompt": "Read the engagement CSV from the upstream context. Filter rows where learner_type is 'highschool'. Rank by completions descending. Return the top 5 as a markdown table with columns: rank, course_id, course_title, enrollments, completions, avg_minutes_spent.",
+        "model": "auto",
+        "attachments": []
+      }
+    },
+    {
+      "id": "n4",
+      "type": "prompt",
+      "position": { "x": 700, "y": 40 },
+      "data": {
+        "kind": "prompt",
+        "title": "English spotlight posts (adult)",
+        "prompt": "For each of the top 5 adult learner courses in the upstream context, draft a spotlight post in English. Each spotlight should have: a punchy headline (max 8 words), a 2-sentence description, an image alt-text suggestion, and a placeholder course link in the form https://skillsbuild.org/courses/{course_id}. Return as a markdown list with clear section breaks.",
+        "model": "auto",
+        "attachments": []
+      }
+    },
+    {
+      "id": "n5",
+      "type": "prompt",
+      "position": { "x": 700, "y": 220 },
+      "data": {
+        "kind": "prompt",
+        "title": "Brazilian Portuguese spotlights (adult)",
+        "prompt": "For each of the top 5 adult learner courses in the upstream context, draft a spotlight post in Brazilian Portuguese. Same structure as English: headline (max 8 words), 2-sentence description, image alt-text suggestion, course link as https://skillsbuild.org/pt-br/courses/{course_id}. Return as a markdown list.",
+        "model": "auto",
+        "attachments": []
+      }
+    },
+    {
+      "id": "n6",
+      "type": "prompt",
+      "position": { "x": 700, "y": 460 },
+      "data": {
+        "kind": "prompt",
+        "title": "Localized lists (high school, 4 langs)",
+        "prompt": "For the top 5 high school learner courses in the upstream context, produce trending lists in four languages: Arabic, Bahasa Indonesia, French, and Spanish. For each language section, include: course title (translated), placeholder link as https://skillsbuild.org/{lang}/courses/{course_id}, and a one-line suggested social format hint. Return as a markdown document with one H2 section per language.",
+        "model": "auto",
+        "attachments": []
+      }
+    },
+    {
+      "id": "n7",
+      "type": "output",
+      "position": { "x": 1080, "y": 280 },
+      "data": {
+        "kind": "output",
+        "title": "Compile weekly trending report",
+        "outputFormat": "word",
+        "outputPath": "~/Desktop/trending-content-report.docx"
+      }
+    }
+  ],
+  "edges": [
+    {
+      "id": "e-n1-n2",
+      "source": "n1",
+      "target": "n2",
+      "data": { "kind": "sequential" }
+    },
+    {
+      "id": "e-n1-n3",
+      "source": "n1",
+      "target": "n3",
+      "data": { "kind": "sequential" }
+    },
+    {
+      "id": "e-n2-n4",
+      "source": "n2",
+      "target": "n4",
+      "data": { "kind": "sequential" }
+    },
+    {
+      "id": "e-n2-n5",
+      "source": "n2",
+      "target": "n5",
+      "data": { "kind": "sequential" }
+    },
+    {
+      "id": "e-n3-n6",
+      "source": "n3",
+      "target": "n6",
+      "data": { "kind": "sequential" }
+    },
+    {
+      "id": "e-n4-n7",
+      "source": "n4",
+      "target": "n7",
+      "data": { "kind": "sequential" }
+    },
+    {
+      "id": "e-n5-n7",
+      "source": "n5",
+      "target": "n7",
+      "data": { "kind": "sequential" }
+    },
+    {
+      "id": "e-n6-n7",
+      "source": "n6",
+      "target": "n7",
+      "data": { "kind": "sequential" }
+    }
+  ]
+}

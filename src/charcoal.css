@@ -479,6 +479,60 @@ button {
   border-bottom-color: var(--ch-accent);
 }
 
+.tab-count {
+  display: inline-block;
+  margin-left: 6px;
+  font-size: 9px;
+  font-weight: 700;
+  background: var(--ch-accent);
+  color: var(--ch-bg);
+  padding: 1px 6px;
+  border-radius: 999px;
+  vertical-align: middle;
+}
+
+.output-card {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 14px;
+  border: 1px solid var(--ch-border);
+  border-radius: var(--ch-radius-md);
+  background: var(--ch-bg);
+  margin-bottom: 8px;
+}
+
+.output-icon {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.output-body {
+  flex: 1;
+  min-width: 0;
+}
+
+.output-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--ch-text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.output-path {
+  font-family: var(--ch-font-mono);
+  font-size: 10px;
+  color: var(--ch-text-tertiary);
+  margin-top: 2px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 .terminal-body {
   flex: 1;
   font-family: var(--ch-font-mono);
