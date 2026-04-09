@@ -69,6 +69,7 @@ interface RunOutput {
   title: string;
   format: OutputFormat;
   path: string;
+  isUrl?: boolean;
   createdAt: number;
 }
 
@@ -446,18 +447,44 @@ function FlowbenchApp() {
             if (found) branchTaken[node.id] = found;
           }
 
-          if (node.data.kind === "output" && node.data.outputPath) {
-            const newOutput: RunOutput = {
-              nodeId: node.id,
-              title: node.data.title || "Untitled output",
-              format: node.data.outputFormat || "markdown",
-              path: node.data.outputPath,
-              createdAt: Date.now(),
-            };
-            setRunOutputs((prev) => [
-              newOutput,
-              ...prev.filter((p) => p.nodeId !== node.id),
-            ]);
+          if (node.data.kind === "output") {
+            const collected: RunOutput[] = [];
+            const baseTitle = node.data.title || "Untitled output";
+            const baseFormat = node.data.outputFormat || "markdown";
+
+            // 1) The configured local path (if any).
+            if (node.data.outputPath) {
+              collected.push({
+                nodeId: node.id,
+                title: baseTitle,
+                format: baseFormat,
+                path: node.data.outputPath,
+                isUrl: false,
+                createdAt: Date.now(),
+              });
+            }
+
+            // 2) Any URLs Claude printed in its output (Figma file URLs, etc).
+            const urls = extractUrls(result.output || "");
+            urls.forEach((url, i) => {
+              collected.push({
+                nodeId: `${node.id}-url-${i}`,
+                title: figmaUrlLabel(url) || `${baseTitle} · link`,
+                format: url.includes("figma.com") ? "figma" : baseFormat,
+                path: url,
+                isUrl: true,
+                createdAt: Date.now() + i,
+              });
+            });
+
+            if (collected.length > 0) {
+              setRunOutputs((prev) => {
+                const filtered = prev.filter(
+                  (p) => p.nodeId !== node.id && !p.nodeId.startsWith(`${node.id}-url-`),
+                );
+                return [...collected, ...filtered];
+              });
+            }
           }
         } catch (err) {
           console.error(`node ${node.id} failed`, err);
@@ -547,6 +574,11 @@ function FlowbenchApp() {
         } else if (succeeded > 0) {
           showToast("success", `Run complete · ${succeeded} node${succeeded > 1 ? "s" : ""}`);
         }
+        // If the run produced any outputs, switch to the Outputs tab so they're visible.
+        setRunOutputs((current) => {
+          if (current.length > 0) setTab("outputs");
+          return current;
+        });
       }
     },
     [running, nodes, edges, clearAllStatuses, setNodeStatus, showToast, orchestratorModel],
@@ -1312,13 +1344,17 @@ function OutputsView({ outputs }: { outputs: RunOutput[] }) {
     );
   }
 
-  const handleOpen = async (path: string) => {
+  const handleOpen = async (output: RunOutput) => {
     try {
-      const expanded = path.startsWith("~/")
-        ? path.replace(/^~/, await getHome())
-        : path;
-      const { openPath } = await import("@tauri-apps/plugin-opener");
-      await openPath(expanded);
+      const opener = await import("@tauri-apps/plugin-opener");
+      if (output.isUrl) {
+        await opener.openUrl(output.path);
+      } else {
+        const expanded = output.path.startsWith("~/")
+          ? output.path.replace(/^~/, await getHome())
+          : output.path;
+        await opener.openPath(expanded);
+      }
     } catch (err) {
       console.error("open failed", err);
     }
@@ -1337,10 +1373,10 @@ function OutputsView({ outputs }: { outputs: RunOutput[] }) {
           </div>
           <button
             className="btn btn-sm"
-            onClick={() => handleOpen(o.path)}
-            title="Open file or folder"
+            onClick={() => handleOpen(o)}
+            title={o.isUrl ? "Open URL in browser" : "Open file or folder"}
           >
-            Open
+            {o.isUrl ? "Open ↗" : "Open"}
           </button>
         </div>
       ))}
@@ -1469,6 +1505,22 @@ function resolveModel(choice: ModelChoice | undefined): string {
   return "auto";
 }
 
+function extractUrls(text: string): string[] {
+  if (!text) return [];
+  const re = /https?:\/\/[^\s)\]<>"']+/g;
+  const matches = text.match(re) || [];
+  // Trim trailing punctuation that often gets caught
+  const cleaned = matches.map((m) => m.replace(/[.,;:!?]+$/, ""));
+  return Array.from(new Set(cleaned));
+}
+
+function figmaUrlLabel(url: string): string | null {
+  if (!url.includes("figma.com")) return null;
+  if (url.includes("/file/") || url.includes("/design/")) return "Figma file";
+  if (url.includes("/proto/")) return "Figma prototype";
+  return "Figma link";
+}
+
 function buildPromptForNode(d: FlowNodeData): string {
   // Repository nodes don't run a Claude prompt — handled specially in the run loop.
   if (d.kind === "repository") return "";
@@ -1518,7 +1570,7 @@ function outputInstructionFor(fmt: OutputFormat, path: string): string {
     return `${common}\n\nUse openpyxl (Python) to generate a real .xlsx. Run a python script via the Bash tool that imports openpyxl, builds a workbook with one or more sheets, populates rows from the upstream structured content, and saves it to the path. Use bold headers and freeze the top row. If openpyxl isn't installed, install it with pip first.`;
   }
   if (fmt === "figma") {
-    return `${common}\n\nUse the user's figma-cli skill (located at ~/figma-cli/) to render this design directly in Figma Desktop. Steps:\n\n1. Read ~/figma-cli/CLAUDE.md to load the latest command syntax.\n2. Connect to Figma Desktop with: node ~/figma-cli/src/index.js connect\n3. Render the upstream content as actual Figma frames using the render or render-batch command. For LinkedIn ads, create frames at the standard sizes: 1200x627 (sponsored content single image), 1080x1080 (square), and 1080x1350 (vertical). Each frame should contain the actual headline, body copy, CTA button, and visual layout described in the upstream context.\n4. If the upstream content is not for LinkedIn ads, infer the appropriate frame size from context.\n5. After rendering, report the Figma file URL or canvas info so the user can find it. Save a small text file at: ${path}.txt with the Figma file URL and frame names so it shows up in the Outputs tab.`;
+    return `${common}\n\nUse the user's figma-cli skill (located at ~/figma-cli/) to render this design directly in Figma Desktop. Steps:\n\n1. Read ~/figma-cli/CLAUDE.md to load the latest command syntax.\n2. Connect to Figma Desktop: \`node ~/figma-cli/src/index.js connect\`\n3. Render the upstream content as actual Figma frames using the render or render-batch command. For LinkedIn ads, create frames at the standard sizes: 1200x627 (sponsored content single image), 1080x1080 (square), and 1080x1350 (vertical). Each frame must contain the actual headline, body copy, CTA button, and visual layout described in the upstream context.\n4. If the upstream content is not for LinkedIn ads, infer the appropriate frame size from context.\n\nCRITICAL: At the end of your response, on its own line, print the Figma file URL in the form:\n\nFigma file: https://www.figma.com/file/<key>/<name>\n\nThis URL is parsed by Flowbench and shown in the Outputs tab. If you can't get a real URL from figma-cli, print the canvas info or page info that lets the user find what you created.`;
   }
   // json
   return `${common}\n\nWrite the content as a single well-formed JSON document. Use the Write tool.`;
