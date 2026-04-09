@@ -1,6 +1,12 @@
 // Flowbench shared types
 
-export type NodeKind = "prompt" | "skill" | "subagent" | "assessment" | "output";
+export type NodeKind =
+  | "prompt"
+  | "skill"
+  | "subagent"
+  | "assessment"
+  | "output"
+  | "repository";
 
 export type OutputFormat = "markdown" | "word" | "powerpoint" | "figma" | "json";
 
@@ -55,6 +61,11 @@ export interface FlowNodeData {
   // Output
   outputFormat?: OutputFormat;
   outputPath?: string;
+  // Attachments (for Prompt + Skill nodes — files/folders Claude reads as context)
+  attachments?: string[];
+  // Repository
+  repoPath?: string;
+  repoDescription?: string;
 }
 
 export const NODE_LABELS: Record<NodeKind, string> = {
@@ -63,6 +74,7 @@ export const NODE_LABELS: Record<NodeKind, string> = {
   subagent: "Sub-agent",
   assessment: "Assessment",
   output: "Output",
+  repository: "Repository",
 };
 
 export const NODE_HINTS: Record<NodeKind, string> = {
@@ -71,6 +83,7 @@ export const NODE_HINTS: Record<NodeKind, string> = {
   subagent: "Isolated task",
   assessment: "Branch on a check",
   output: "Save as a document",
+  repository: "Reference a file or folder",
 };
 
 export function defaultDataFor(kind: NodeKind): FlowNodeData {
@@ -88,6 +101,13 @@ export function defaultDataFor(kind: NodeKind): FlowNodeData {
   if (kind === "output") {
     base.outputFormat = "markdown";
     base.outputPath = "";
+  }
+  if (kind === "repository") {
+    base.repoPath = "";
+    base.repoDescription = "";
+  }
+  if (kind === "prompt" || kind === "skill") {
+    base.attachments = [];
   }
   return base;
 }

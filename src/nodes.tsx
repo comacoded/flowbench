@@ -8,6 +8,7 @@ const KIND_COLORS: Record<string, string> = {
   subagent: "#D97706",
   assessment: "#16A34A",
   output: "#9333EA",
+  repository: "#0891B2",
 };
 
 export function NodeKindIcon({ kind }: { kind: NodeKind }) {
@@ -66,19 +67,33 @@ export function NodeKindIcon({ kind }: { kind: NodeKind }) {
       </svg>
     );
   }
-  // output — document with a small fold corner
+  if (kind === "output") {
+    return (
+      <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+        <path
+          d="M3 1.5H8.5L11.5 4.5V12C11.5 12.28 11.28 12.5 11 12.5H3C2.72 12.5 2.5 12.28 2.5 12V2C2.5 1.72 2.72 1.5 3 1.5Z"
+          stroke="currentColor"
+          strokeWidth="1.2"
+          strokeLinejoin="round"
+        />
+        <path d="M8.5 1.5V4.5H11.5" stroke="currentColor" strokeWidth="1.2" strokeLinejoin="round" />
+        <line x1="4.5" y1="6.5" x2="9.5" y2="6.5" stroke="currentColor" strokeWidth="1" strokeLinecap="round" />
+        <line x1="4.5" y1="8" x2="9.5" y2="8" stroke="currentColor" strokeWidth="1" strokeLinecap="round" />
+        <line x1="4.5" y1="9.5" x2="7.5" y2="9.5" stroke="currentColor" strokeWidth="1" strokeLinecap="round" />
+      </svg>
+    );
+  }
+  // repository — folder with a small file glyph
   return (
     <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
       <path
-        d="M3 1.5H8.5L11.5 4.5V12C11.5 12.28 11.28 12.5 11 12.5H3C2.72 12.5 2.5 12.28 2.5 12V2C2.5 1.72 2.72 1.5 3 1.5Z"
+        d="M1.5 4C1.5 3.45 1.95 3 2.5 3H5.5L7 4.5H11.5C12.05 4.5 12.5 4.95 12.5 5.5V11C12.5 11.55 12.05 12 11.5 12H2.5C1.95 12 1.5 11.55 1.5 11V4Z"
         stroke="currentColor"
         strokeWidth="1.2"
         strokeLinejoin="round"
       />
-      <path d="M8.5 1.5V4.5H11.5" stroke="currentColor" strokeWidth="1.2" strokeLinejoin="round" />
-      <line x1="4.5" y1="6.5" x2="9.5" y2="6.5" stroke="currentColor" strokeWidth="1" strokeLinecap="round" />
-      <line x1="4.5" y1="8" x2="9.5" y2="8" stroke="currentColor" strokeWidth="1" strokeLinecap="round" />
-      <line x1="4.5" y1="9.5" x2="7.5" y2="9.5" stroke="currentColor" strokeWidth="1" strokeLinecap="round" />
+      <line x1="5" y1="7.5" x2="9" y2="7.5" stroke="currentColor" strokeWidth="1" strokeLinecap="round" />
+      <line x1="5" y1="9" x2="8" y2="9" stroke="currentColor" strokeWidth="1" strokeLinecap="round" />
     </svg>
   );
 }
@@ -124,14 +139,25 @@ export function FlowNode({ id, data, selected }: NodeProps<FlowNodeData>) {
 }
 
 function summarize(d: FlowNodeData): string {
-  if (d.kind === "prompt") return d.prompt?.slice(0, 60) || "No prompt";
-  if (d.kind === "skill") return d.skill || "No skill selected";
+  if (d.kind === "prompt") {
+    const a = (d.attachments || []).length;
+    const base = d.prompt?.slice(0, 60) || "No prompt";
+    return a > 0 ? `${base}  ·  ${a} file${a > 1 ? "s" : ""}` : base;
+  }
+  if (d.kind === "skill") {
+    const a = (d.attachments || []).length;
+    const base = d.skill || "No skill selected";
+    return a > 0 ? `${base}  ·  ${a} file${a > 1 ? "s" : ""}` : base;
+  }
   if (d.kind === "subagent")
     return d.subagentPrompt?.slice(0, 60) || "No instructions";
   if (d.kind === "assessment") return d.question?.slice(0, 60) || "No question";
   if (d.kind === "output") {
     const fmt = d.outputFormat || "markdown";
     return d.outputPath || `Save as ${fmt}`;
+  }
+  if (d.kind === "repository") {
+    return d.repoPath || "No path set";
   }
   return "";
 }
@@ -142,4 +168,5 @@ export const nodeTypes = {
   subagent: FlowNode,
   assessment: FlowNode,
   output: FlowNode,
+  repository: FlowNode,
 };

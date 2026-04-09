@@ -26,6 +26,7 @@ import {
   defaultDataFor,
 } from "./types";
 import { saveFlow, openFlow } from "./storage";
+import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import { invoke } from "@tauri-apps/api/core";
 import { LiveTerminal } from "./Terminal";
 import { NodeActionsContext } from "./nodeActions";
@@ -216,7 +217,11 @@ function FlowbenchApp() {
         return;
       }
       // "Runnable" includes assessment nodes — they have a question prompt.
-      const runnable = order.filter((n) => buildPromptForNode(n.data).length > 0);
+      // Repository nodes are runnable too (they produce a path output) even though
+      // buildPromptForNode returns "" for them.
+      const runnable = order.filter(
+        (n) => n.data.kind === "repository" || buildPromptForNode(n.data).length > 0,
+      );
       if (runnable.length === 0) return;
 
       // Build adjacency: nodeId -> list of (edge, targetNode)
@@ -341,6 +346,29 @@ function FlowbenchApp() {
           },
         }));
         try {
+          // Repository nodes don't spawn Claude — they instantly resolve to their path.
+          if (node.data.kind === "repository") {
+            const path = node.data.repoPath || "";
+            const desc = node.data.repoDescription
+              ? ` (${node.data.repoDescription})`
+              : "";
+            const out = path ? `@${path}${desc}` : "(no path set)";
+            outputs[node.id] = out;
+            setNodeStatus(node.id, "success");
+            setNodeResults((prev) => ({
+              ...prev,
+              [node.id]: {
+                ...prev[node.id],
+                status: "success",
+                endedAt: Date.now(),
+                output: out,
+              },
+            }));
+            nodeOutcome[node.id] = "success";
+            succeeded++;
+            return;
+          }
+
           // Build context from upstream outputs per the orchestrator plan.
           const incoming = (plan?.edges || []).filter(
             (pe) => pe.to === node.id && pe.instruction.toLowerCase() !== "none",
@@ -937,7 +965,13 @@ function Library({
     e.dataTransfer.effectAllowed = "move";
   };
 
-  const kinds: NodeKind[] = ["prompt", "skill", "subagent", "assessment"];
+  const kinds: NodeKind[] = [
+    "prompt",
+    "skill",
+    "subagent",
+    "assessment",
+    "repository",
+  ];
   const outputFormats: OutputFormat[] = [
     "markdown",
     "word",
@@ -1355,16 +1389,28 @@ function resolveModel(choice: ModelChoice | undefined): string {
 }
 
 function buildPromptForNode(d: FlowNodeData): string {
-  if (d.kind === "prompt") return d.prompt || "";
-  if (d.kind === "skill") return d.skill ? `/${d.skill}` : "";
-  if (d.kind === "subagent") return d.subagentPrompt || "";
-  if (d.kind === "assessment") return d.question || "";
-  if (d.kind === "output") {
+  // Repository nodes don't run a Claude prompt — handled specially in the run loop.
+  if (d.kind === "repository") return "";
+
+  let body = "";
+  if (d.kind === "prompt") body = d.prompt || "";
+  else if (d.kind === "skill") body = d.skill ? `/${d.skill}` : "";
+  else if (d.kind === "subagent") body = d.subagentPrompt || "";
+  else if (d.kind === "assessment") body = d.question || "";
+  else if (d.kind === "output") {
     const fmt = d.outputFormat || "markdown";
     const path = d.outputPath || `~/Desktop/flowbench-output.${defaultExtFor(fmt)}`;
-    return outputInstructionFor(fmt, path);
+    body = outputInstructionFor(fmt, path);
   }
-  return "";
+
+  // Prepend file attachments as @-references that Claude Code reads natively.
+  const attachments = d.attachments || [];
+  if (attachments.length > 0 && (d.kind === "prompt" || d.kind === "skill")) {
+    const refs = attachments.map((p) => `@${p}`).join(" ");
+    body = `${refs}\n\n${body}`;
+  }
+
+  return body;
 }
 
 function defaultExtFor(fmt: OutputFormat): string {
@@ -1950,6 +1996,127 @@ function EditModal({
                 />
               </Field>
             </>
+          )}
+
+          {d.kind === "repository" && (
+            <>
+              <Field label="Path">
+                <div style={{ display: "flex", gap: 8 }}>
+                  <input
+                    className="input"
+                    value={d.repoPath || ""}
+                    onChange={(e) => patch({ repoPath: e.target.value })}
+                    placeholder="/Users/nickcoma/Documents/my-repo"
+                    style={{ flex: 1 }}
+                  />
+                  <button
+                    className="btn btn-sm"
+                    onClick={async () => {
+                      const picked = await openDialog({
+                        title: "Pick a file or folder",
+                        directory: false,
+                        multiple: false,
+                      });
+                      if (picked && typeof picked === "string") patch({ repoPath: picked });
+                    }}
+                  >
+                    File
+                  </button>
+                  <button
+                    className="btn btn-sm"
+                    onClick={async () => {
+                      const picked = await openDialog({
+                        title: "Pick a folder",
+                        directory: true,
+                        multiple: false,
+                      });
+                      if (picked && typeof picked === "string") patch({ repoPath: picked });
+                    }}
+                  >
+                    Folder
+                  </button>
+                </div>
+              </Field>
+              <Field label="Description (optional)">
+                <input
+                  className="input"
+                  value={d.repoDescription || ""}
+                  onChange={(e) => patch({ repoDescription: e.target.value })}
+                  placeholder="What this repo or file is for"
+                />
+              </Field>
+              <p style={{ margin: "8px 0 0", fontSize: 11, color: "var(--ch-text-tertiary)" }}>
+                Downstream nodes receive <code>@{d.repoPath || "&lt;path&gt;"}</code> as context. Claude will read files from this location as needed.
+              </p>
+            </>
+          )}
+
+          {(d.kind === "prompt" || d.kind === "skill") && (
+            <Field label="Attached files">
+              <div className="attachments-list">
+                {(d.attachments || []).map((a, i) => (
+                  <div key={i} className="attachment-row">
+                    <span className="attachment-path" title={a}>
+                      @{a}
+                    </span>
+                    <button
+                      className="btn btn-icon attachment-remove"
+                      onClick={() =>
+                        patch({
+                          attachments: (d.attachments || []).filter(
+                            (_, j) => j !== i,
+                          ),
+                        })
+                      }
+                      title="Remove"
+                    >
+                      <IconX />
+                    </button>
+                  </div>
+                ))}
+                <div style={{ display: "flex", gap: 8, marginTop: 6 }}>
+                  <button
+                    className="btn btn-sm"
+                    onClick={async () => {
+                      const picked = await openDialog({
+                        title: "Attach a file",
+                        directory: false,
+                        multiple: true,
+                      });
+                      const arr = Array.isArray(picked)
+                        ? picked
+                        : picked
+                          ? [picked]
+                          : [];
+                      if (arr.length > 0) {
+                        patch({
+                          attachments: [...(d.attachments || []), ...arr],
+                        });
+                      }
+                    }}
+                  >
+                    + File
+                  </button>
+                  <button
+                    className="btn btn-sm"
+                    onClick={async () => {
+                      const picked = await openDialog({
+                        title: "Attach a folder",
+                        directory: true,
+                        multiple: false,
+                      });
+                      if (picked && typeof picked === "string") {
+                        patch({
+                          attachments: [...(d.attachments || []), picked],
+                        });
+                      }
+                    }}
+                  >
+                    + Folder
+                  </button>
+                </div>
+              </div>
+            </Field>
           )}
         </div>
       </div>

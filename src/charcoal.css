@@ -810,6 +810,44 @@ button {
   padding: 4px 8px;
 }
 
+.attachments-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.attachment-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  background: var(--ch-surface);
+  border: 1px solid var(--ch-border);
+  border-radius: var(--ch-radius-sm);
+}
+
+.attachment-path {
+  flex: 1;
+  font-family: var(--ch-font-mono);
+  font-size: 11px;
+  color: var(--ch-text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.attachment-remove {
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  color: var(--ch-text-tertiary);
+}
+
+.attachment-remove:hover {
+  color: var(--ch-error);
+  background: transparent;
+}
+
 /* ─────────────── Library drag handle ─────────────── */
 
 .lib-item-format-icon {
