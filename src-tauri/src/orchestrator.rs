@@ -4,6 +4,7 @@
 // produce a JSON Context Plan, and parse it back. The plan is then used by the
 // JS run loop to inject upstream context into downstream prompts.
 
+use crate::paths::claude_binary;
 use serde::{Deserialize, Serialize};
 use tokio::io::AsyncWriteExt;
 use tokio::process::Command;
@@ -101,7 +102,8 @@ pub async fn plan_graph(
 
     let prompt = build_orchestrator_prompt(&nodes, &edges);
 
-    let mut cmd = Command::new("claude");
+    let claude = claude_binary().ok_or_else(|| "claude CLI not found.".to_string())?;
+    let mut cmd = Command::new(&claude);
     cmd.arg("-p").arg(&prompt);
     if let Some(m) = model.as_ref() {
         if !m.is_empty() && m != "auto" {

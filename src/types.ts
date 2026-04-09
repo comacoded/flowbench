@@ -1,6 +1,16 @@
 // Flowbench shared types
 
-export type NodeKind = "prompt" | "skill" | "subagent" | "assessment";
+export type NodeKind = "prompt" | "skill" | "subagent" | "assessment" | "output";
+
+export type OutputFormat = "markdown" | "word" | "powerpoint" | "figma" | "json";
+
+export const OUTPUT_FORMAT_LABELS: Record<OutputFormat, string> = {
+  markdown: "Markdown (.md)",
+  word: "Word document (.docx)",
+  powerpoint: "PowerPoint (.pptx)",
+  figma: "Figma file",
+  json: "JSON (.json)",
+};
 
 export type NodeStatus = "idle" | "running" | "success" | "failed";
 
@@ -42,6 +52,9 @@ export interface FlowNodeData {
   // Assessment
   question?: string;
   branches?: string[];
+  // Output
+  outputFormat?: OutputFormat;
+  outputPath?: string;
 }
 
 export const NODE_LABELS: Record<NodeKind, string> = {
@@ -49,6 +62,7 @@ export const NODE_LABELS: Record<NodeKind, string> = {
   skill: "Skill",
   subagent: "Sub-agent",
   assessment: "Assessment",
+  output: "Output",
 };
 
 export const NODE_HINTS: Record<NodeKind, string> = {
@@ -56,6 +70,7 @@ export const NODE_HINTS: Record<NodeKind, string> = {
   skill: "Run a saved skill",
   subagent: "Isolated task",
   assessment: "Branch on a check",
+  output: "Save as a document",
 };
 
 export function defaultDataFor(kind: NodeKind): FlowNodeData {
@@ -69,6 +84,10 @@ export function defaultDataFor(kind: NodeKind): FlowNodeData {
   if (kind === "assessment") {
     base.question = "";
     base.branches = ["yes", "no"];
+  }
+  if (kind === "output") {
+    base.outputFormat = "markdown";
+    base.outputPath = "";
   }
   return base;
 }

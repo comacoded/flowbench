@@ -7,6 +7,7 @@ const KIND_COLORS: Record<string, string> = {
   skill: "#2563EB",
   subagent: "#D97706",
   assessment: "#16A34A",
+  output: "#9333EA",
 };
 
 export function NodeKindIcon({ kind }: { kind: NodeKind }) {
@@ -51,17 +52,33 @@ export function NodeKindIcon({ kind }: { kind: NodeKind }) {
       </svg>
     );
   }
-  // assessment — flowchart decision diamond
+  if (kind === "assessment") {
+    return (
+      <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+        <path
+          d="M7 1.5L12.5 7L7 12.5L1.5 7L7 1.5Z"
+          stroke="currentColor"
+          strokeWidth="1.2"
+          strokeLinejoin="round"
+          fill="currentColor"
+          fillOpacity="0.08"
+        />
+      </svg>
+    );
+  }
+  // output — document with a small fold corner
   return (
     <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
       <path
-        d="M7 1.5L12.5 7L7 12.5L1.5 7L7 1.5Z"
+        d="M3 1.5H8.5L11.5 4.5V12C11.5 12.28 11.28 12.5 11 12.5H3C2.72 12.5 2.5 12.28 2.5 12V2C2.5 1.72 2.72 1.5 3 1.5Z"
         stroke="currentColor"
         strokeWidth="1.2"
         strokeLinejoin="round"
-        fill="currentColor"
-        fillOpacity="0.08"
       />
+      <path d="M8.5 1.5V4.5H11.5" stroke="currentColor" strokeWidth="1.2" strokeLinejoin="round" />
+      <line x1="4.5" y1="6.5" x2="9.5" y2="6.5" stroke="currentColor" strokeWidth="1" strokeLinecap="round" />
+      <line x1="4.5" y1="8" x2="9.5" y2="8" stroke="currentColor" strokeWidth="1" strokeLinecap="round" />
+      <line x1="4.5" y1="9.5" x2="7.5" y2="9.5" stroke="currentColor" strokeWidth="1" strokeLinecap="round" />
     </svg>
   );
 }
@@ -112,6 +129,10 @@ function summarize(d: FlowNodeData): string {
   if (d.kind === "subagent")
     return d.subagentPrompt?.slice(0, 60) || "No instructions";
   if (d.kind === "assessment") return d.question?.slice(0, 60) || "No question";
+  if (d.kind === "output") {
+    const fmt = d.outputFormat || "markdown";
+    return d.outputPath || `Save as ${fmt}`;
+  }
   return "";
 }
 
@@ -120,4 +141,5 @@ export const nodeTypes = {
   skill: FlowNode,
   subagent: FlowNode,
   assessment: FlowNode,
+  output: FlowNode,
 };

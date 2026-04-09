@@ -1,5 +1,6 @@
 mod auth;
 mod orchestrator;
+mod paths;
 mod runner;
 
 use serde::Serialize;

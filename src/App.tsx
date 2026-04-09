@@ -31,7 +31,13 @@ import { LiveTerminal } from "./Terminal";
 import { NodeActionsContext } from "./nodeActions";
 import { Panel, PanelGroup, PanelResizeHandle } from "react-resizable-panels";
 import { topoSort, waitForResume } from "./runLoop";
-import { NodeStatus, ModelChoice, MODEL_LABELS } from "./types";
+import {
+  NodeStatus,
+  ModelChoice,
+  MODEL_LABELS,
+  OutputFormat,
+  OUTPUT_FORMAT_LABELS,
+} from "./types";
 
 interface SkillEntry {
   kind: "skill" | "command";
@@ -110,7 +116,6 @@ function FlowbenchApp() {
   const idRef = useRef(0);
   const pausedRef = useRef(false);
   const cancelledRef = useRef(false);
-  const stepResolverRef = useRef<(() => void) | null>(null);
   const [toast, setToast] = useState<{ kind: "success" | "error" | "info"; text: string } | null>(null);
   const toastTimerRef = useRef<number | null>(null);
 
@@ -283,134 +288,150 @@ function FlowbenchApp() {
       const SOFT_CAP = 30;
       setNodeResults({});
 
-      // Frontier-based traversal honoring edge kinds.
-      const visited = new Set<string>();
-      const queue: Node<FlowNodeData>[] = [...roots];
+      // Parallel batched walker honoring edge kinds.
+      // Each node tracks how many of its incoming edges are still pending settlement.
+      // A node becomes ready when all incoming edges have been settled and at least
+      // one of them fired (or it's a root).
+      const remainingDeps = new Map<string, number>();
+      for (const n of runnable) {
+        const incomingEdges = edges.filter(
+          (e) =>
+            e.target === n.id && runnable.some((rn) => rn.id === e.source),
+        );
+        remainingDeps.set(n.id, incomingEdges.length);
+      }
+      const scheduled = new Set<string>(roots.map((r) => r.id));
+      const completed = new Set<string>();
+      const nodeOutcome: Record<string, "success" | "failed"> = {};
 
-      const advance = (currentId: string, currentStatus: "success" | "failed") => {
-        const out = outgoing.get(currentId) || [];
+      const settleEdgesFrom = (sourceId: string) => {
+        const status = nodeOutcome[sourceId];
+        if (!status) return;
+        const out = outgoing.get(sourceId) || [];
         for (const e of out) {
           const ed = (e.data as FlowEdgeData) || {};
           const kind = ed.kind || "sequential";
-          // Decide whether this edge fires.
           let fires = false;
-          if (kind === "sequential") fires = currentStatus === "success";
-          else if (kind === "success") fires = currentStatus === "success";
-          else if (kind === "failure") fires = currentStatus === "failed";
+          if (kind === "sequential" || kind === "success") fires = status === "success";
+          else if (kind === "failure") fires = status === "failed";
           else if (kind === "conditional") {
-            // Only fire if the upstream is an assessment AND its chosen branch matches this edge's branch label.
-            const chosen = branchTaken[currentId];
+            const chosen = branchTaken[sourceId];
             fires = !!chosen && (ed.branch || "").trim() === chosen.trim();
           }
-          if (!fires) continue;
-          const target = runnable.find((n) => n.id === e.target);
-          if (target && !visited.has(target.id)) {
-            queue.push(target);
+          const target = runnable.find((rn) => rn.id === e.target);
+          if (!target) continue;
+          remainingDeps.set(target.id, (remainingDeps.get(target.id) || 0) - 1);
+          if (fires) scheduled.add(target.id);
+        }
+      };
+
+      const runOneNode = async (node: Node<FlowNodeData>) => {
+        setNodeStatus(node.id, "running");
+        const effectiveModel: ModelChoice =
+          overrides[node.id] || node.data.model || "auto";
+        setNodeResults((prev) => ({
+          ...prev,
+          [node.id]: {
+            nodeId: node.id,
+            title: node.data.title || "Untitled",
+            kind: node.data.kind,
+            status: "running",
+            model: effectiveModel,
+            startedAt: Date.now(),
+          },
+        }));
+        try {
+          // Build context from upstream outputs per the orchestrator plan.
+          const incoming = (plan?.edges || []).filter(
+            (pe) => pe.to === node.id && pe.instruction.toLowerCase() !== "none",
+          );
+          let contextPrefix = "";
+          for (const pe of incoming) {
+            const upstreamOut = outputs[pe.from];
+            if (!upstreamOut) continue;
+            const upstreamTitle =
+              runnable.find((n) => n.id === pe.from)?.data.title || pe.from;
+            contextPrefix += `\n\n--- context from "${upstreamTitle}" (${pe.instruction}) ---\n${upstreamOut.trim()}\n--- end context ---`;
           }
+          const finalPrompt = contextPrefix
+            ? `${contextPrefix}\n\n${buildPromptForNode(node.data)}`
+            : buildPromptForNode(node.data);
+
+          const result = await invoke<{ output: string }>("run_node", {
+            nodeId: node.id,
+            prompt: finalPrompt,
+            model: resolveModel(effectiveModel),
+          });
+          outputs[node.id] = result.output || "";
+          setNodeStatus(node.id, "success");
+          setNodeResults((prev) => ({
+            ...prev,
+            [node.id]: {
+              ...prev[node.id],
+              status: "success",
+              endedAt: Date.now(),
+              output: result.output || "",
+            },
+          }));
+          nodeOutcome[node.id] = "success";
+          succeeded++;
+
+          if (node.data.kind === "assessment") {
+            const branches = node.data.branches || [];
+            const lower = (result.output || "").toLowerCase();
+            const found = branches.find((b) => lower.includes(b.toLowerCase()));
+            if (found) branchTaken[node.id] = found;
+          }
+        } catch (err) {
+          console.error(`node ${node.id} failed`, err);
+          setNodeStatus(node.id, "failed");
+          setNodeResults((prev) => ({
+            ...prev,
+            [node.id]: {
+              ...prev[node.id],
+              status: "failed",
+              endedAt: Date.now(),
+              error: String(err),
+            },
+          }));
+          nodeOutcome[node.id] = "failed";
+          failed++;
         }
       };
 
       try {
-        while (queue.length > 0) {
-          const node = queue.shift()!;
-          if (visited.has(node.id)) continue;
-          visited.add(node.id);
-
-          // wait for resume if paused
+        while (true) {
           await waitForResume(
             () => pausedRef.current,
             () => cancelledRef.current,
           );
           if (cancelledRef.current) break;
 
-          setNodeStatus(node.id, "running");
-          const effectiveModel: ModelChoice =
-            overrides[node.id] || node.data.model || "auto";
-          setNodeResults((prev) => ({
-            ...prev,
-            [node.id]: {
-              nodeId: node.id,
-              title: node.data.title || "Untitled",
-              kind: node.data.kind,
-              status: "running",
-              model: effectiveModel,
-              startedAt: Date.now(),
-            },
-          }));
-          try {
-            // Build context from upstream outputs per the orchestrator plan.
-            const incoming = (plan?.edges || []).filter(
-              (pe) => pe.to === node.id && pe.instruction.toLowerCase() !== "none",
-            );
-            let contextPrefix = "";
-            for (const pe of incoming) {
-              const upstreamOut = outputs[pe.from];
-              if (!upstreamOut) continue;
-              const upstreamTitle =
-                runnable.find((n) => n.id === pe.from)?.data.title || pe.from;
-              contextPrefix += `\n\n--- context from "${upstreamTitle}" (${pe.instruction}) ---\n${upstreamOut.trim()}\n--- end context ---`;
-            }
+          // Find all currently-ready nodes: scheduled, not completed, all deps settled.
+          const ready = runnable.filter(
+            (n) =>
+              scheduled.has(n.id) &&
+              !completed.has(n.id) &&
+              (remainingDeps.get(n.id) || 0) === 0,
+          );
+          if (ready.length === 0) break;
 
-            const finalPrompt = contextPrefix
-              ? `${contextPrefix}\n\n${buildPromptForNode(node.data)}`
-              : buildPromptForNode(node.data);
+          // Step mode: only one at a time.
+          const batch = mode === "step" ? ready.slice(0, 1) : ready;
+          for (const n of batch) completed.add(n.id);
 
-            const result = await invoke<{ output: string }>("run_node", {
-              nodeId: node.id,
-              prompt: finalPrompt,
-              model: resolveModel(effectiveModel),
-            });
-            outputs[node.id] = result.output || "";
-            setNodeStatus(node.id, "success");
-            setNodeResults((prev) => ({
-              ...prev,
-              [node.id]: {
-                ...prev[node.id],
-                status: "success",
-                endedAt: Date.now(),
-                output: result.output || "",
-              },
-            }));
-            succeeded++;
-            executedCount++;
+          // Run the batch concurrently.
+          await Promise.all(batch.map(runOneNode));
+          executedCount += batch.length;
 
-            // If this was an assessment node, parse the chosen branch from its output.
-            if (node.data.kind === "assessment") {
-              const branches = node.data.branches || [];
-              const lower = (result.output || "").toLowerCase();
-              const found = branches.find((b) => lower.includes(b.toLowerCase()));
-              if (found) branchTaken[node.id] = found;
-            }
+          // After the batch, settle outgoing edges from each completed node.
+          for (const n of batch) {
+            settleEdgesFrom(n.id);
+          }
 
-            advance(node.id, "success");
-
-            // Soft cap check.
-            if (executedCount >= SOFT_CAP) {
-              showToast("info", `Soft cap of ${SOFT_CAP} nodes reached. Pausing.`);
-              pausedRef.current = true;
-              setPaused(true);
-              await waitForResume(
-                () => pausedRef.current,
-                () => cancelledRef.current,
-              );
-              if (cancelledRef.current) break;
-              executedCount = 0;
-            }
-          } catch (err) {
-            console.error(`node ${node.id} failed`, err);
-            setNodeStatus(node.id, "failed");
-            setNodeResults((prev) => ({
-              ...prev,
-              [node.id]: {
-                ...prev[node.id],
-                status: "failed",
-                endedAt: Date.now(),
-                error: String(err),
-              },
-            }));
-            failed++;
-            executedCount++;
-            // Pause for human intervention before deciding to follow on-failure edges.
+          // If anything in the batch failed, pause for human intervention.
+          const anyFailed = batch.some((n) => nodeOutcome[n.id] === "failed");
+          if (anyFailed) {
             pausedRef.current = true;
             setPaused(true);
             await waitForResume(
@@ -418,11 +439,22 @@ function FlowbenchApp() {
               () => cancelledRef.current,
             );
             if (cancelledRef.current) break;
-            // After resume, follow only on-failure edges.
-            advance(node.id, "failed");
           }
 
-          // step mode: pause after each successful node
+          // Soft cap.
+          if (executedCount >= SOFT_CAP) {
+            showToast("info", `Soft cap of ${SOFT_CAP} nodes reached. Pausing.`);
+            pausedRef.current = true;
+            setPaused(true);
+            await waitForResume(
+              () => pausedRef.current,
+              () => cancelledRef.current,
+            );
+            if (cancelledRef.current) break;
+            executedCount = 0;
+          }
+
+          // Step mode pauses after each batch (which is one node).
           if (mode === "step") {
             pausedRef.current = true;
             setPaused(true);
@@ -877,7 +909,7 @@ function Library({
     e.dataTransfer.effectAllowed = "move";
   };
 
-  const kinds: NodeKind[] = ["prompt", "skill", "subagent", "assessment"];
+  const kinds: NodeKind[] = ["prompt", "skill", "subagent", "assessment", "output"];
 
   return (
     <aside className="panel library">
@@ -963,6 +995,8 @@ function Canvas({
   onEdgesChange,
   onConnect,
   onSelect,
+  onNodeDoubleClick,
+  onEdgeClick,
   onDrop,
 }: {
   nodes: Node<FlowNodeData>[];
@@ -1193,7 +1227,38 @@ function buildPromptForNode(d: FlowNodeData): string {
   if (d.kind === "skill") return d.skill ? `/${d.skill}` : "";
   if (d.kind === "subagent") return d.subagentPrompt || "";
   if (d.kind === "assessment") return d.question || "";
+  if (d.kind === "output") {
+    const fmt = d.outputFormat || "markdown";
+    const path = d.outputPath || `~/Desktop/flowbench-output.${defaultExtFor(fmt)}`;
+    return outputInstructionFor(fmt, path);
+  }
   return "";
+}
+
+function defaultExtFor(fmt: OutputFormat): string {
+  if (fmt === "word") return "docx";
+  if (fmt === "powerpoint") return "pptx";
+  if (fmt === "figma") return "fig";
+  if (fmt === "json") return "json";
+  return "md";
+}
+
+function outputInstructionFor(fmt: OutputFormat, path: string): string {
+  const common = `Take the upstream context provided above and create a real ${OUTPUT_FORMAT_LABELS[fmt]} file at: ${path}`;
+  if (fmt === "markdown") {
+    return `${common}\n\nWrite the content as well-formatted Markdown with headings, lists, and any tables that fit the data. Use the Write tool. Do not summarize — preserve full content.`;
+  }
+  if (fmt === "word") {
+    return `${common}\n\nUse python-docx (Python) to generate a real .docx. Run a python script via the Bash tool that imports docx, builds the document with headings/paragraphs/tables matching the structure of the upstream content, and saves it to the path. If python-docx isn't installed, install it with pip first.`;
+  }
+  if (fmt === "powerpoint") {
+    return `${common}\n\nUse python-pptx (Python) to generate a real .pptx. Run a python script via the Bash tool that imports pptx, builds slides with title/content layouts based on the upstream structure, and saves it to the path. If python-pptx isn't installed, install it with pip first.`;
+  }
+  if (fmt === "figma") {
+    return `${common}\n\nIf the user has a figma-cli skill or Figma plugin installed, use it. Otherwise, generate a Figma-import-friendly JSON describing the design and save it to the path with a .json extension. The user can then import it manually.`;
+  }
+  // json
+  return `${common}\n\nWrite the content as a single well-formed JSON document. Use the Write tool.`;
 }
 
 function ClaudeStatusModal({
@@ -1723,6 +1788,33 @@ function EditModal({
                         .filter(Boolean),
                     })
                   }
+                />
+              </Field>
+            </>
+          )}
+          {d.kind === "output" && (
+            <>
+              <Field label="Format">
+                <select
+                  className="input"
+                  value={d.outputFormat || "markdown"}
+                  onChange={(e) =>
+                    patch({ outputFormat: e.target.value as OutputFormat })
+                  }
+                >
+                  {(Object.keys(OUTPUT_FORMAT_LABELS) as OutputFormat[]).map((f) => (
+                    <option key={f} value={f}>
+                      {OUTPUT_FORMAT_LABELS[f]}
+                    </option>
+                  ))}
+                </select>
+              </Field>
+              <Field label="Save path">
+                <input
+                  className="input"
+                  value={d.outputPath || ""}
+                  onChange={(e) => patch({ outputPath: e.target.value })}
+                  placeholder="~/Desktop/my-output.md"
                 />
               </Field>
             </>

@@ -4,6 +4,7 @@
 // the user has installed and logged in via Claude Code. This module probes
 // that install and reports a status the UI can show as a pill.
 
+use crate::paths::claude_binary;
 use serde::Serialize;
 use std::time::Duration;
 use tauri::{AppHandle, Emitter};
@@ -27,23 +28,16 @@ pub struct ClaudeStatus {
 
 #[tauri::command]
 pub async fn claude_status() -> ClaudeStatus {
-    // 1) Is `claude` on PATH at all?
-    let which = Command::new("which").arg("claude").output().await;
-    let on_path = match which {
-        Ok(o) if o.status.success() => true,
-        _ => false,
-    };
-    if !on_path {
+    let Some(claude) = claude_binary() else {
         return ClaudeStatus {
             kind: ClaudeStatusKind::NotInstalled,
-            message: "claude CLI not found on PATH. Install Claude Code first."
-                .into(),
+            message: "claude CLI not found in any standard location.".into(),
         };
-    }
+    };
 
-    // 2) Probe with a tiny prompt. Auth failures show up as a non-zero exit
-    //    or as stderr containing words like "login" / "auth".
-    let probe = Command::new("claude")
+    // Probe with a tiny prompt. Auth failures show up as a non-zero exit
+    // or as stderr containing words like "login" / "auth".
+    let probe = Command::new(&claude)
         .arg("-p")
         .arg("ok")
         .stdout(std::process::Stdio::piped())
@@ -105,7 +99,10 @@ pub async fn claude_status() -> ClaudeStatus {
 pub async fn claude_login(app: AppHandle) -> Result<String, String> {
     let _ = app.emit("auth-event", serde_json::json!({ "kind": "login_started" }));
 
-    let child = Command::new("claude")
+    let claude = claude_binary()
+        .ok_or_else(|| "claude CLI not found. Install Claude Code first.".to_string())?;
+
+    let child = Command::new(&claude)
         .arg("login")
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped())
@@ -133,7 +130,9 @@ pub async fn claude_login(app: AppHandle) -> Result<String, String> {
 /// Spawn `claude logout`. Removes credentials from the local CLI install.
 #[tauri::command]
 pub async fn claude_logout() -> Result<String, String> {
-    let output = Command::new("claude")
+    let claude = claude_binary()
+        .ok_or_else(|| "claude CLI not found.".to_string())?;
+    let output = Command::new(&claude)
         .arg("logout")
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped())

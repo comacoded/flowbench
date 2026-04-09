@@ -4,6 +4,7 @@
 // stdout/stderr line-by-line back to the UI via Tauri events. PTY-style
 // interactive sessions land in Phase 5/6 when the Free terminal tab arrives.
 
+use crate::paths::claude_binary;
 use serde::Serialize;
 use tauri::{AppHandle, Emitter};
 use tokio::io::{AsyncBufReadExt, BufReader};
@@ -30,7 +31,8 @@ pub async fn run_node(
         serde_json::json!({ "node_id": node_id, "model": model }),
     );
 
-    let mut cmd = Command::new("claude");
+    let claude = claude_binary().ok_or_else(|| "claude CLI not found.".to_string())?;
+    let mut cmd = Command::new(&claude);
     cmd.arg("-p").arg(&prompt);
     if let Some(m) = model.as_ref() {
         if !m.is_empty() && m != "auto" {

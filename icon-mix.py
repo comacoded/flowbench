@@ -9,12 +9,25 @@ os.makedirs(OUT_DIR, exist_ok=True)
 SIZE = 1024
 BG = (26, 26, 26, 255)
 FG = (255, 255, 255, 255)
-RADIUS = 224
+
+# macOS icon template: visible rounded square sits inside ~80% of the
+# canvas with transparent padding around it.
+ICON_INSET = 100        # transparent padding from each edge
+ICON_LEFT = ICON_INSET
+ICON_TOP = ICON_INSET
+ICON_RIGHT = SIZE - ICON_INSET
+ICON_BOTTOM = SIZE - ICON_INSET
+ICON_SIZE = ICON_RIGHT - ICON_LEFT       # 824
+RADIUS = 185                              # macOS-style ~22% of inner size
 
 def base():
     img = Image.new("RGBA", (SIZE, SIZE), (0, 0, 0, 0))
     d = ImageDraw.Draw(img)
-    d.rounded_rectangle((0, 0, SIZE - 1, SIZE - 1), radius=RADIUS, fill=BG)
+    d.rounded_rectangle(
+        (ICON_LEFT, ICON_TOP, ICON_RIGHT, ICON_BOTTOM),
+        radius=RADIUS,
+        fill=BG,
+    )
     return img, d
 
 
@@ -96,21 +109,29 @@ node(d, n_a, NR)
 node(d, n_b, NR)
 img.save(f"{OUT_DIR}/C-wave-anchored.png")
 
-# ─── Mix D: Two paths braided + one node at the merge ───
+# ─── Mix D: Two paths braided + one node at the merge — fits inner canvas ───
 img, d = base()
-NR = 96
-EW = 46
-n_a = (200, 280)
-n_b = (200, 744)
-n_c = (824, 512)  # merge point
+# Inner padding inside the 824×824 visible icon
+PAD = 140
+NR = 58
+EW = 30
+left_x = ICON_LEFT + PAD
+right_x = ICON_RIGHT - PAD
+top_y = ICON_TOP + PAD + 40
+bot_y = ICON_BOTTOM - PAD - 40
+mid_y = SIZE // 2
+n_a = (left_x, top_y)
+n_b = (left_x, bot_y)
+n_c = (right_x, mid_y)  # merge point
+mid_x = (left_x + right_x) // 2
 # Top fork
-c1a = (520, 200)
-c1b = (560, 480)
+c1a = (mid_x + 30, top_y - 10)
+c1b = (mid_x + 70, mid_y - 20)
 pts = cubic(n_a, c1a, c1b, n_c, 300)
 thick(d, pts, EW)
 # Bottom fork
-c2a = (520, 824)
-c2b = (560, 544)
+c2a = (mid_x + 30, bot_y + 10)
+c2b = (mid_x + 70, mid_y + 20)
 pts = cubic(n_b, c2a, c2b, n_c, 300)
 thick(d, pts, EW)
 node(d, n_a, NR)
